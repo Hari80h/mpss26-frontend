@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
+  Star,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { RECOMMENDED_PEOPLE_IDS } from '../../lib/mockData';
@@ -21,6 +22,7 @@ export const DelegatePeople: React.FC = () => {
     viewSavedPeopleOnly,
     setViewSavedPeopleOnly,
     savedPeopleIds,
+    toggleSavePerson,
   } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,16 +124,22 @@ export const DelegatePeople: React.FC = () => {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto px-3.5 py-2.5 space-y-2.5 no-scrollbar pb-2.5">
         <p className="text-[12.5px] font-medium text-[#6B7280] px-0.5">
-          {displayedList.length} Recommended {displayedList.length === 1 ? 'Attendee' : 'Attendees'}
+          {viewSavedPeopleOnly
+            ? `${displayedList.length} Saved ${displayedList.length === 1 ? 'Person' : 'People'}`
+            : `${displayedList.length} Recommended ${displayedList.length === 1 ? 'Attendee' : 'Attendees'}`}
         </p>
 
         {/* Attendees / Profiles List */}
         <div className="space-y-2.5">
           {displayedList.length === 0 ? (
             <div className="p-8 text-center bg-white rounded-[20px] border border-[#DEDCD7]">
-              <p className="text-xs font-semibold text-[#181818]">No recommended attendees found</p>
+              <p className="text-xs font-semibold text-[#181818]">
+                {viewSavedPeopleOnly ? 'No saved people yet' : 'No recommended attendees found'}
+              </p>
               <p className="text-[11px] text-[#6B6B6B] mt-1">
-                Try adjusting your search keywords.
+                {viewSavedPeopleOnly
+                  ? 'Explore the Speakers and People tabs and tap the star to save them here.'
+                  : 'Try adjusting your search keywords.'}
               </p>
             </div>
           ) : (
@@ -167,7 +175,25 @@ export const DelegatePeople: React.FC = () => {
                   </div>
                 </div>
 
-                <ChevronRight className="w-4 h-4 text-[#9CA3AF] flex-shrink-0 stroke-[2]" />
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSavePerson(person.id);
+                    }}
+                    className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                    title={savedPeopleIds.includes(person.id) ? "Remove from Saved People" : "Save Person"}
+                  >
+                    <Star
+                      className={`w-4 h-4 ${
+                        savedPeopleIds.includes(person.id)
+                          ? 'fill-amber-400 text-amber-500'
+                          : 'text-[#9CA3AF]'
+                      }`}
+                    />
+                  </button>
+                  <ChevronRight className="w-4 h-4 text-[#9CA3AF] stroke-[2]" />
+                </div>
               </div>
             ))
           )}

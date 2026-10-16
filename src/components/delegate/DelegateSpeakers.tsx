@@ -17,6 +17,7 @@ import {
   User,
   UserPlus,
   Users,
+  Star,
 } from 'lucide-react';
 
 import { useStore } from '../../lib/store';
@@ -31,6 +32,8 @@ export const DelegateSpeakers: React.FC = () => {
     disconnectFrom,
     setSelectedPersonId,
     setActiveDelegateTab,
+    savedPeopleIds,
+    toggleSavePerson,
   } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,6 +120,24 @@ export const DelegateSpeakers: React.FC = () => {
                         {speaker.name.split(' ').map((n) => n[0]).join('')}
                       </div>
                     )}
+
+                    {/* Star Button at Top Left */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSavePerson(speaker.id);
+                      }}
+                      className="absolute top-2 left-2 w-[24px] h-[24px] rounded-[6px] bg-white shadow-xs border border-white/80 flex items-center justify-center transition-transform active:scale-90 hover:scale-105 z-10"
+                      title={savedPeopleIds.includes(speaker.id) ? "Remove from Saved People" : "Save Speaker"}
+                    >
+                      <Star
+                        className={`w-3.5 h-3.5 ${
+                          savedPeopleIds.includes(speaker.id)
+                            ? 'fill-amber-400 text-amber-500'
+                            : 'text-[#9CA3AF]'
+                        }`}
+                      />
+                    </button>
 
                     {/* LinkedIn Badge at Top Right */}
                     <a

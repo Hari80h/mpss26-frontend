@@ -77,9 +77,18 @@ export const DelegateEditProfile: React.FC = () => {
     showToast('Demo profile loaded (100% complete)', 'success');
   };
 
-  const handleSave = () => {
-    updateCurrentUser(formData);
-    router.push('/delegate/profile');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateCurrentUser(formData);
+      router.push('/delegate/profile');
+    } catch {
+      // toast shown by store
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -97,10 +106,11 @@ export const DelegateEditProfile: React.FC = () => {
         </div>
         <button
           onClick={handleSave}
-          className="bg-[#181818] hover:bg-[#333] text-white text-[11.5px] font-semibold px-3.5 py-1.5 rounded-full flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs active:scale-95"
+          disabled={isSaving}
+          className="bg-[#181818] hover:bg-[#333] text-white text-[11.5px] font-semibold px-3.5 py-1.5 rounded-full flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
         >
           <Save className="w-3.5 h-3.5" />
-          Save
+          {isSaving ? 'Saving...' : 'Save'}
         </button>
       </div>
 

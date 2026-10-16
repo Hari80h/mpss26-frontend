@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../../lib/store';
+import { api, OrganizerMetrics } from '../../lib/api';
 import {
   Users,
   Building2,
@@ -14,8 +15,22 @@ export const OrganizerOverview: React.FC = () => {
     setActiveOrganizerTab,
   } = useStore();
 
-  const registered = event.totalRegistered || 2438;
-  const exhibitorsCount = event.totalExhibitors || 51;
+  const [liveMetrics, setLiveMetrics] = useState<OrganizerMetrics | null>(null);
+
+  useEffect(() => {
+    api.organizer.getMetrics()
+      .then((data) => {
+        if (data && data.totalRegistered !== undefined) {
+          setLiveMetrics(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Live metrics not available, using store data:', err);
+      });
+  }, []);
+
+  const registered = liveMetrics?.totalRegistered ?? event.totalRegistered ?? 2438;
+  const exhibitorsCount = liveMetrics?.totalExhibitors ?? event.totalExhibitors ?? 51;
   const speakersCount = event.totalSpeakers || 40;
 
   // 3 Core KPI metrics
@@ -37,15 +52,24 @@ export const OrganizerOverview: React.FC = () => {
     },
   ];
 
-  // Top exhibitors data matching specification
-  const leadExhibitors = [
-    { name: 'Microsoft', booth: 'Booth B-14', leads: 248 },
+  // Top exhibitors data matching specification or live metrics
+  const defaultExhibitors = [
+    { name: 'Truechip Solutions', booth: 'Hall 1 · A-02', leads: 248 },
     { name: 'Google Cloud', booth: 'Booth B-02', leads: 186 },
     { name: 'AWS', booth: 'Booth B-09', leads: 164 },
     { name: 'TCS', booth: 'Booth B-21', leads: 142 },
     { name: 'Infosys', booth: 'Booth B-30', leads: 96 },
   ];
-  const maxLeads = 280;
+
+  const leadExhibitors = (liveMetrics?.topExhibitors && liveMetrics.topExhibitors.length > 0)
+    ? liveMetrics.topExhibitors.map((ex) => ({
+        name: ex.name,
+        booth: ex.booth,
+        leads: ex.leads,
+      }))
+    : defaultExhibitors;
+
+  const maxLeads = Math.max(...leadExhibitors.map((e) => e.leads), 10);
 
   return (
     <div className="space-y-6 select-text max-w-[1360px] mx-auto w-full">

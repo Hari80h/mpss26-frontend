@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   Calendar,
   Share2,
-  QrCode
+  QrCode,
+  Edit3
 } from 'lucide-react';
 import { Person } from '../../types';
 
@@ -28,11 +29,23 @@ export const OrganizerAttendees: React.FC = () => {
     importAttendeesMock,
     showToast,
     event,
+    updateAttendee,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'All' | 'Delegates' | 'VIP' | 'Speakers' | 'Exhibitors'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
+  const [isEditingPerson, setIsEditingPerson] = useState(false);
+  const [isSavingPerson, setIsSavingPerson] = useState(false);
+  const [personEditForm, setPersonEditForm] = useState({
+    name: '',
+    designation: '',
+    company: '',
+    email: '',
+    mobile: '',
+    ticketType: '',
+    bio: '',
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(11);
 
@@ -411,58 +424,227 @@ export const OrganizerAttendees: React.FC = () => {
                 </span>
                 <h2 className="text-base font-semibold text-[#172033] mt-0.5">{selectedPerson.name}</h2>
               </div>
-              <button
-                onClick={() => setSelectedPerson(null)}
-                className="p-1 rounded-md text-[#64748B] hover:text-[#172033] hover:bg-[#F1F5F9] cursor-pointer transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Registration Details */}
-            <div className="bg-[#F8FAFC] p-3.5 rounded-lg border border-[#E2E8F0] space-y-2.5 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-[#64748B]">Registration ID:</span>
-                <strong className="font-mono text-[#172033] font-semibold">{getFormattedRegId(selectedPerson)}</strong>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[#64748B]">Ticket Tier:</span>
-                <span className="font-medium text-[#172033]">{selectedPerson.ticketType}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[#64748B]">Company & Role:</span>
-                <span className="text-[#172033]">{selectedPerson.designation} · {selectedPerson.company}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[#64748B]">Email:</span>
-                <span className="text-[#172033] font-mono">{selectedPerson.email}</span>
-              </div>
-            </div>
-
-            {/* Engagement metrics */}
-            <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
-              <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <span className="text-[11px] text-[#64748B] block">Sessions</span>
-                <strong className="text-[13px] font-mono text-[#172033] font-semibold">4 Bookmarked</strong>
-              </div>
-              <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <span className="text-[11px] text-[#64748B] block">Connections</span>
-                <strong className="text-[13px] font-mono text-[#172033] font-semibold">8 Made</strong>
-              </div>
-              <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <span className="text-[11px] text-[#64748B] block">QR Scans</span>
-                <strong className="text-[13px] font-mono text-[#172033] font-semibold">14 Scanned</strong>
+              <div className="flex items-center gap-1.5">
+                {!isEditingPerson && (
+                  <button
+                    onClick={() => {
+                      setPersonEditForm({
+                        name: selectedPerson.name || '',
+                        designation: selectedPerson.designation || '',
+                        company: selectedPerson.company || '',
+                        email: selectedPerson.email || '',
+                        mobile: selectedPerson.mobile || '',
+                        ticketType: selectedPerson.ticketType || '',
+                        bio: selectedPerson.bio || '',
+                      });
+                      setIsEditingPerson(true);
+                    }}
+                    className="p-1.5 rounded-md text-[#64748B] hover:text-[#172033] hover:bg-[#F1F5F9] cursor-pointer transition-colors"
+                    title="Edit Attendee"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedPerson(null);
+                    setIsEditingPerson(false);
+                  }}
+                  className="p-1 rounded-md text-[#64748B] hover:text-[#172033] hover:bg-[#F1F5F9] cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
-            <div className="pt-2">
-              <button
-                onClick={() => setSelectedPerson(null)}
-                className="w-full py-2 px-3 bg-[#14233B] hover:bg-[#1E304F] text-white font-medium text-xs rounded-lg transition-colors shadow-2xs cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
+            {isEditingPerson ? (
+              /* ORGANIZER EDIT ATTENDEE FORM */
+              <div className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#475569]">Full Name</label>
+                  <input
+                    type="text"
+                    value={personEditForm.name}
+                    onChange={(e) => setPersonEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-[#475569]">Company</label>
+                    <input
+                      type="text"
+                      value={personEditForm.company}
+                      onChange={(e) => setPersonEditForm((prev) => ({ ...prev, company: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-[#475569]">Designation</label>
+                    <input
+                      type="text"
+                      value={personEditForm.designation}
+                      onChange={(e) => setPersonEditForm((prev) => ({ ...prev, designation: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-[#475569]">Email</label>
+                    <input
+                      type="email"
+                      value={personEditForm.email}
+                      onChange={(e) => setPersonEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-[#475569]">Mobile</label>
+                    <input
+                      type="text"
+                      value={personEditForm.mobile}
+                      onChange={(e) => setPersonEditForm((prev) => ({ ...prev, mobile: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#475569]">Ticket Tier</label>
+                  <select
+                    value={personEditForm.ticketType}
+                    onChange={(e) => setPersonEditForm((prev) => ({ ...prev, ticketType: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none bg-white"
+                  >
+                    <option value="Delegate Pass">Delegate Pass</option>
+                    <option value="VIP Delegate Pass">VIP Delegate Pass</option>
+                    <option value="Speaker Pass">Speaker Pass</option>
+                    <option value="Exhibitor Booth Staff">Exhibitor Booth Staff</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#475569]">Bio / Profile Summary</label>
+                  <textarea
+                    rows={2}
+                    value={personEditForm.bio}
+                    onChange={(e) => setPersonEditForm((prev) => ({ ...prev, bio: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-[#CBD5E1] text-xs focus:ring-1 focus:ring-[#14233B] outline-none resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingPerson(false)}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingPerson}
+                    onClick={async () => {
+                      setIsSavingPerson(true);
+                      try {
+                        await updateAttendee(selectedPerson.id, personEditForm);
+                        setSelectedPerson((prev) => prev ? ({ ...prev, ...personEditForm }) : null);
+                        setIsEditingPerson(false);
+                      } catch {
+                        // toast handled in store
+                      } finally {
+                        setIsSavingPerson(false);
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#14233B] text-white hover:bg-[#1E304F] font-semibold disabled:opacity-50"
+                  >
+                    {isSavingPerson ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* VIEW ATTENDEE RECORD */
+              <>
+                {/* Registration Details */}
+                <div className="bg-[#F8FAFC] p-3.5 rounded-lg border border-[#E2E8F0] space-y-2.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#64748B]">Registration ID:</span>
+                    <strong className="font-mono text-[#172033] font-semibold">{getFormattedRegId(selectedPerson)}</strong>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#64748B]">Ticket Tier:</span>
+                    <span className="font-medium text-[#172033]">{selectedPerson.ticketType}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#64748B]">Company & Role:</span>
+                    <span className="text-[#172033]">{selectedPerson.designation} · {selectedPerson.company}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#64748B]">Email:</span>
+                    <span className="text-[#172033] font-mono">{selectedPerson.email || 'None provided'}</span>
+                  </div>
+                  {selectedPerson.mobile && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#64748B]">Mobile:</span>
+                      <span className="text-[#172033] font-mono">{selectedPerson.mobile}</span>
+                    </div>
+                  )}
+                  {selectedPerson.bio && (
+                    <div className="pt-1 border-t border-[#E2E8F0]">
+                      <span className="text-[#64748B] block mb-0.5">Bio:</span>
+                      <p className="text-[#334155] leading-relaxed">{selectedPerson.bio}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Focus Areas & Skills */}
+                {((selectedPerson.interests && selectedPerson.interests.length > 0) || (selectedPerson.skills && selectedPerson.skills.length > 0)) && (
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">Focus Areas & Skills:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.from(new Set([...(selectedPerson.interests || []), ...(selectedPerson.skills || [])])).map((tag, idx) => (
+                        <span key={idx} className="text-[11px] bg-[#F1F5F9] text-[#475569] px-2 py-0.5 rounded-md font-medium border border-[#E2E8F0]">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Engagement metrics */}
+                <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
+                  <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
+                    <span className="text-[11px] text-[#64748B] block">Sessions</span>
+                    <strong className="text-[13px] font-mono text-[#172033] font-semibold">4 Bookmarked</strong>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
+                    <span className="text-[11px] text-[#64748B] block">Connections</span>
+                    <strong className="text-[13px] font-mono text-[#172033] font-semibold">8 Made</strong>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
+                    <span className="text-[11px] text-[#64748B] block">Check-in</span>
+                    <strong className={`text-[13px] font-semibold ${selectedPerson.checkedIn ? 'text-green-600' : 'text-slate-500'}`}>
+                      {selectedPerson.checkedIn ? 'Checked In ✓' : 'Registered'}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      setSelectedPerson(null);
+                      setIsEditingPerson(false);
+                    }}
+                    className="w-full py-2 px-3 bg-[#14233B] hover:bg-[#1E304F] text-white font-medium text-xs rounded-lg transition-colors shadow-2xs cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

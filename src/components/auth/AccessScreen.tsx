@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../lib/store';
 import { CURRENT_USER, INITIAL_ATTENDEES } from '../../lib/mockData';
+import { api } from '../../lib/api';
 import { ShieldCheck, CheckCircle2, AlertCircle, ArrowRight, Loader2, Lock } from 'lucide-react';
 
 interface AccessScreenProps {
@@ -32,7 +33,7 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
     mobileInputRef.current?.focus();
   };
 
-  const handleVerify = (e?: React.FormEvent | React.MouseEvent) => {
+  const handleVerify = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e && typeof e.preventDefault === 'function') {
       e.preventDefault();
     }
@@ -58,6 +59,55 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
     if (num.startsWith('91') && num.length > 10) num = num.slice(2);
     if (num.startsWith('0')) num = num.slice(1);
 
+    try {
+      // 1. Authenticate against the live Spring Boot backend
+      const res = await api.auth.login(eventId || 'MPSS26', num);
+      if (res && res.token && res.user) {
+        let detectedRole: 'delegate' | 'exhibitor' | 'organizer' = 'delegate';
+        if (res.user.role === 'ROLE_ORGANIZER') detectedRole = 'organizer';
+        else if (res.user.role === 'ROLE_EXHIBITOR') detectedRole = 'exhibitor';
+        else detectedRole = 'delegate';
+
+        setRole(detectedRole);
+
+        const matched = INITIAL_ATTENDEES.find((a) => a.id === res.user.id || (a.mobile && a.mobile.replace(/\D/g, '').endsWith(num)));
+        if (matched) {
+          setCurrentUser({
+            ...matched,
+            id: res.user.id,
+            name: res.user.name,
+            email: res.user.email,
+            mobile: res.user.mobile,
+          });
+        } else {
+          setCurrentUser({
+            ...CURRENT_USER,
+            id: res.user.id,
+            name: res.user.name,
+            email: res.user.email,
+            mobile: res.user.mobile,
+            role: detectedRole === 'organizer' ? 'organizer_staff' : detectedRole === 'exhibitor' ? 'exhibitor_staff' : 'delegate',
+          });
+        }
+
+        setStatus('confirmed');
+        setTimeout(() => {
+          setHasAccessConfirmed(true);
+          onSuccess();
+        }, 350);
+        return;
+      }
+    } catch (err: any) {
+      // If backend explicitly rejected with registration error or rate limit
+      if (err.message && (err.message.includes('No registration found') || err.message.includes('not registered') || err.message.includes('Rate limit') || err.message.includes('400'))) {
+        setStatus('error');
+        setErrorMessage(err.message);
+        return;
+      }
+      console.warn('Backend unavailable, using fallback:', err);
+    }
+
+    // Offline / Mock fallback
     let detectedRole: 'delegate' | 'exhibitor' | 'organizer' = 'delegate';
 
     if (num === '9876543211' || num.endsWith('43211') || num.endsWith('3211')) {
@@ -210,14 +260,14 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleQuickSelect('90876543212')}
+                  onClick={() => handleQuickSelect('9876543212')}
                   className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
-                    mobile === '90876543212'
+                    mobile === '9876543212'
                       ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
                       : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
                   }`}
                 >
-                  Organizer (90876543212)
+                  Organizer (9876543212)
                 </button>
               </div>
             </div>

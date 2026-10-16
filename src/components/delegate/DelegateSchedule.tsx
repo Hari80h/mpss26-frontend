@@ -188,12 +188,13 @@ export const DelegateSchedule: React.FC = () => {
 
   // Day filter counts
   const daySessions = sessions.filter((s) => s.day === activeDay);
-  const daySavedSessions = daySessions.filter((s) => s.isBookmarked && !isBreakSession(s));
+  const daySavedSessions = daySessions.filter((s) => s.isBookmarked);
+  const totalSavedSessions = sessions.filter((s) => s.isBookmarked);
 
   // Filter sessions by Day and Tab
   const filteredSessions = sessions.filter((s) => {
     if (s.day !== activeDay) return false;
-    if (activeTab === 'saved' && (!s.isBookmarked || isBreakSession(s))) return false;
+    if (activeTab === 'saved' && !s.isBookmarked) return false;
     return true;
   });
 
@@ -458,7 +459,7 @@ export const DelegateSchedule: React.FC = () => {
               }`}
             >
               <Bookmark className="w-3.5 h-3.5" />
-              <span>My Schedule ({daySavedSessions.length})</span>
+              <span>My Schedule ({totalSavedSessions.length})</span>
             </button>
           </div>
         </div>
@@ -467,19 +468,26 @@ export const DelegateSchedule: React.FC = () => {
         <div className="-mx-3 px-3">
           <div className="flex -mb-[1px]">
             {[
-              { day: 1, label: 'Day 1: Oct 23, 2026' },
-              { day: 2, label: 'Day 2: Oct 24, 2026' },
+              { day: 1, label: 'Day 1: Oct 23, 2026', count: sessions.filter((s) => s.day === 1 && s.isBookmarked).length },
+              { day: 2, label: 'Day 2: Oct 24, 2026', count: sessions.filter((s) => s.day === 2 && s.isBookmarked).length },
             ].map((d) => (
               <button
                 key={d.day}
                 onClick={() => setActiveDay(d.day)}
-                className={`flex-1 py-2.5 px-2 text-center text-[13px] transition-all whitespace-nowrap border-b-2 ${
+                className={`flex-1 py-2.5 px-2 text-center text-[13px] transition-all whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 ${
                   activeDay === d.day
                     ? 'text-[#0F172A] font-bold border-[#DC2626]'
                     : 'text-[#6B7280] hover:text-[#0F172A] font-medium border-transparent'
                 }`}
               >
-                {d.label}
+                <span>{d.label}</span>
+                {d.count > 0 && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    activeDay === d.day ? 'bg-[#DC2626] text-white' : 'bg-[#E2E8F0] text-[#475569]'
+                  }`}>
+                    {d.count}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -492,13 +500,24 @@ export const DelegateSchedule: React.FC = () => {
           <div className="p-8 text-center bg-white rounded-[16px] border border-[#E5E7EB] shadow-xs my-4">
             <Bookmark className="w-8 h-8 text-[#D1D5DB] mx-auto mb-2" />
             <p className="text-[13px] font-bold text-[#111827]">
-              {activeTab === 'saved' ? 'No sessions saved for this day' : 'No matching sessions found'}
+              {activeTab === 'saved' ? `No sessions saved for Day ${activeDay}` : 'No matching sessions found'}
             </p>
             <p className="text-[11.5px] text-[#6B7280] mt-1 leading-relaxed max-w-[260px] mx-auto">
               {activeTab === 'saved'
-                ? 'Tap the bookmark ribbon on any session card to add it to your personal itinerary.'
+                ? (sessions.some((s) => s.day !== activeDay && s.isBookmarked)
+                    ? `You have bookmarked sessions on Day ${activeDay === 1 ? 2 : 1}. Switch days above to view them.`
+                    : 'Tap the bookmark ribbon on any session card in All Sessions to add it to your personal itinerary.')
                 : 'Try adjusting your search query or pick a different summit day.'}
             </p>
+            {activeTab === 'saved' && sessions.some((s) => s.day !== activeDay && s.isBookmarked) && (
+              <button
+                type="button"
+                onClick={() => setActiveDay(activeDay === 1 ? 2 : 1)}
+                className="mt-3 px-3 py-1.5 text-xs font-semibold text-white bg-[#DC2626] rounded-lg shadow-sm hover:bg-[#B91C1C] transition-all cursor-pointer"
+              >
+                Switch to Day {activeDay === 1 ? 2 : 1}
+              </button>
+            )}
           </div>
         ) : (
           <div className="relative">

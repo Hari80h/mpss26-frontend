@@ -30,6 +30,7 @@ import {
   INITIAL_EXHIBITORS,
   INITIAL_INTERESTED_VISITORS
 } from './mockData';
+import { api } from './api';
 
 
 interface ToastMessage {
@@ -92,7 +93,8 @@ interface StoreContextType {
   event: EventMetadata;
   currentUser: Person;
   setCurrentUser: React.Dispatch<React.SetStateAction<Person>>;
-  updateCurrentUser: (data: Partial<Person>) => void;
+  updateCurrentUser: (data: Partial<Person>) => Promise<void>;
+  updateAttendee: (id: string, data: Partial<Person>) => Promise<void>;
   updateCurrentUserPrivacy: (newPrivacy: Partial<PrivacyConsent>) => void;
   attendees: Person[];
   setAttendees: React.Dispatch<React.SetStateAction<Person[]>>;
@@ -110,19 +112,19 @@ interface StoreContextType {
   disconnectFrom: (personId: string) => void;
   acceptConnectionRequest: (personId: string) => void;
   ignoreConnectionRequest: (personId: string) => void;
-  saveLead: (leadData: Omit<Lead, 'id' | 'capturedAt'>) => void;
-  updateLeadStatus: (leadId: string, status: LeadStatus, notes?: string) => void;
+  saveLead: (leadData: Omit<Lead, 'id' | 'capturedAt'>) => void | Promise<void>;
+  updateLeadStatus: (leadId: string, status: LeadStatus, notes?: string) => void | Promise<void>;
   enquireProduct: (productId: string) => void;
   toggleSaveProduct: (productId: string) => void;
-  updateProduct: (productId: string, data: Partial<Product>) => void;
-  deleteProduct: (productId: string) => void;
-  addProduct: (productData: Omit<Product, 'id'>) => void;
-  submitQuestion: (sessionId: string, text: string, isAnonymous: boolean) => void;
+  updateProduct: (productId: string, data: Partial<Product>) => void | Promise<void>;
+  deleteProduct: (productId: string) => void | Promise<void>;
+  addProduct: (productData: Omit<Product, 'id'>) => void | Promise<void>;
+  submitQuestion: (sessionId: string, text: string, isAnonymous: boolean) => void | Promise<void>;
   upvoteQuestion: (questionId: string) => { success: boolean; message?: string };
   updateQuestionStatus: (questionId: string, status: QuestionStatus) => void;
-  votePoll: (optionId: string) => { success: boolean; message: string };
+  votePoll: (optionId: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
   togglePollStatus: () => void;
-  resetPollVote: () => void;
+  resetPollVote: () => void | Promise<void>;
   toggleCheckIn: (personId: string) => void;
   addWalkInAttendee: (data: { name: string; email: string; mobile: string; company: string; designation: string; ticketType: string }) => void;
   importAttendeesMock: (count: number) => void;
@@ -153,10 +155,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeOrganizerTab, setActiveOrganizerTab] = useState<'overview' | 'attendees' | 'exhibitors' | 'sessions' | 'reports' | 'settings'>('overview');
   const [viewMode, setViewMode] = useState<'frame' | 'responsive'>('frame');
 
-  const toggleSaveCompany = useCallback((id: string) => {
-    setSavedCompanyIds(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
-  }, []);
-
   // Connectivity
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -174,14 +172,60 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [savedCompanyIds, setSavedCompanyIds] = useState<string[]>([]);
   const [savedPeopleIds, setSavedPeopleIds] = useState<string[]>([]);
-  const toggleSavePerson = useCallback((id: string) => {
-    setSavedPeopleIds((prev) => {
-      const isSaved = prev.includes(id);
-      if (isSaved) return prev.filter((pId) => pId !== id);
-      return [...prev, id];
-    });
+
+  // Toast
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  // Show Toast Helper
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    const id = Date.now().toString();
+    setToast({ id, message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev?.id === id ? null : prev));
+    }, 2800);
   }, []);
 
+  const toggleSaveCompany = useCallback(async (id: string) => {
+    const isSaved = savedCompanyIds.includes(id);
+    // Optimistic UI update
+    setSavedCompanyIds((prev) => (isSaved ? prev.filter((c) => c !== id) : [...prev, id]));
+
+    try {
+      if (isSaved) {
+        await api.attendees.unsaveExhibitor(id);
+        showToast('Company removed from saved list', 'info');
+      } else {
+        await api.attendees.saveExhibitor(id);
+        showToast('Company saved to My Exhibitors ✓', 'success');
+      }
+    } catch (err: any) {
+      console.warn('Backend toggleSaveCompany error:', err);
+      // Rollback on failure
+      setSavedCompanyIds((prev) => (isSaved ? [...prev, id] : prev.filter((c) => c !== id)));
+      showToast(err?.message || 'Failed to update saved company on server', 'error');
+    }
+  }, [savedCompanyIds, showToast]);
+
+  const toggleSavePerson = useCallback(async (id: string) => {
+    const isSaved = savedPeopleIds.includes(id);
+    // Optimistic UI update
+    setSavedPeopleIds((prev) => (isSaved ? prev.filter((pId) => pId !== id) : [...prev, id]));
+
+    try {
+      if (isSaved) {
+        await api.attendees.unsavePerson(id);
+        showToast('Removed from Saved People', 'info');
+      } else {
+        await api.attendees.savePerson(id);
+        showToast('Saved to My People', 'success');
+      }
+    } catch (err: any) {
+      console.warn('Backend toggleSavePerson error:', err);
+      // Rollback on failure
+      setSavedPeopleIds((prev) => (isSaved ? [...prev, id] : prev.filter((pId) => pId !== id)));
+      showToast(err?.message || 'Failed to update saved person on server', 'error');
+    }
+  }, [savedPeopleIds, showToast]);
 
   // Entities
   const [event, setEvent] = useState<EventMetadata>(INITIAL_EVENT);
@@ -195,18 +239,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [poll, setPoll] = useState<Poll>(INITIAL_POLL);
   const [exhibitors, setExhibitors] = useState<ExhibitorStats[]>(INITIAL_EXHIBITORS);
   const [interestedVisitors, setInterestedVisitors] = useState<InterestedVisitor[]>(INITIAL_INTERESTED_VISITORS);
-
-  // Toast
-  const [toast, setToast] = useState<ToastMessage | null>(null);
-
-  // Show Toast Helper
-  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
-    const id = Date.now().toString();
-    setToast({ id, message, type });
-    setTimeout(() => {
-      setToast((prev) => (prev?.id === id ? null : prev));
-    }, 2800);
-  }, []);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -228,15 +260,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             totalConnections: parsed.event.totalConnections || INITIAL_EVENT.totalConnections,
           });
         }
-        if (parsed.currentUser && parsed.currentUser.id === CURRENT_USER.id) {
+        if (parsed.currentUser) {
           const u = { ...CURRENT_USER, ...parsed.currentUser };
-          u.name = 'Hari Gupta';
-          u.company = 'EventSphere';
-          u.designation = 'CEO';
-          u.mobile = '+91 98765 43210';
-          u.email = 'hari@eventsphere.com';
-          u.avatar = '/images/avatars/hari-gupta.png';
-          u.registrationId = '#5023';
           if (!u.privacy || (u.privacy.preset as any) === 'Private') {
             u.privacy = {
               preset: 'Connections Only',
@@ -326,6 +351,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (parsed.interestedVisitors) setInterestedVisitors(parsed.interestedVisitors);
         if (parsed.role) setRoleState(parsed.role);
         if (typeof parsed.hasAccessConfirmed === 'boolean') setHasAccessConfirmed(parsed.hasAccessConfirmed);
+        if (parsed.savedPeopleIds && Array.isArray(parsed.savedPeopleIds)) {
+          setSavedPeopleIds(parsed.savedPeopleIds);
+        }
+        if (parsed.savedCompanyIds && Array.isArray(parsed.savedCompanyIds)) {
+          setSavedCompanyIds(parsed.savedCompanyIds);
+        }
       }
     } catch {
       // ignore
@@ -349,6 +380,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         interestedVisitors,
         role,
         hasAccessConfirmed,
+        savedPeopleIds,
+        savedCompanyIds,
       };
       const timer = setTimeout(() => {
         try {
@@ -375,12 +408,342 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     interestedVisitors,
     role,
     hasAccessConfirmed,
+    savedPeopleIds,
+    savedCompanyIds,
   ]);
 
-  // Set role with tab preservation
+  // Sync live metrics from backend when organizer console is active
+  useEffect(() => {
+    if (role === 'organizer' && hasAccessConfirmed) {
+      api.organizer.getMetrics()
+        .then((m) => {
+          if (m && m.totalRegistered !== undefined) {
+            setEvent((prev) => ({
+              ...prev,
+              totalRegistered: m.totalRegistered,
+              totalCheckedIn: m.totalCheckedIn,
+              totalExhibitors: m.totalExhibitors || prev.totalExhibitors,
+            }));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend metrics fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live sessions & bookmarks from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed) {
+      api.sessions.getAll()
+        .then((backendSessions) => {
+          if (backendSessions && Array.isArray(backendSessions) && backendSessions.length > 0) {
+            const bMap = new Map(backendSessions.map((s: any) => [s.id, s]));
+            setSessions((prev) =>
+              prev.map((s) => {
+                const b = bMap.get(s.id);
+                if (b) {
+                  return {
+                    ...s,
+                    isBookmarked: Boolean(b.isBookmarked),
+                    status: (b.status as any) || s.status,
+                    attendanceCount: typeof b.attendanceCount === 'number' ? b.attendanceCount : s.attendanceCount,
+                    questionsCount: typeof b.questionsCount === 'number' ? b.questionsCount : s.questionsCount,
+                  };
+                }
+                return s;
+              })
+            );
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend sessions fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live saved people from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'delegate') {
+      api.attendees.getSavedPeople()
+        .then((backendSaved) => {
+          if (backendSaved && Array.isArray(backendSaved)) {
+            const ids = backendSaved.map((p: any) => p.id);
+            setSavedPeopleIds((prev) => Array.from(new Set([...prev, ...ids])));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend saved people fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live saved companies (exhibitors) from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'delegate') {
+      api.attendees.getSavedExhibitors()
+        .then((backendSaved) => {
+          if (backendSaved && Array.isArray(backendSaved)) {
+            setSavedCompanyIds((prev) => Array.from(new Set([...prev, ...backendSaved])));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend saved exhibitors fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live connections from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'delegate') {
+      api.attendees.getConnections()
+        .then((backendConns) => {
+          if (backendConns && Array.isArray(backendConns) && backendConns.length > 0) {
+            setConnections((prev) => {
+              const bIds = new Set(backendConns.map((c: any) => c.personId || c.id));
+              const localKept = prev.filter((c) => !bIds.has(c.personId) && !bIds.has(c.id));
+              return [...backendConns, ...localKept];
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend connections fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live current user profile from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'delegate') {
+      api.attendees.getMyProfile()
+        .then((profile) => {
+          if (profile && profile.name) {
+            setCurrentUser((prev) => ({
+              ...prev,
+              name: profile.name || prev.name,
+              designation: profile.designation || prev.designation,
+              company: profile.company || prev.company,
+              bio: profile.bio || prev.bio,
+              email: profile.email || prev.email,
+              mobile: profile.mobile || prev.mobile,
+              avatar: profile.avatar || prev.avatar,
+              linkedin: profile.linkedin || prev.linkedin,
+              twitter: profile.twitter || prev.twitter,
+              interests: (profile.interests && profile.interests.length > 0) ? profile.interests : prev.interests,
+              skills: (profile.skills && profile.skills.length > 0) ? profile.skills : prev.skills,
+              registrationId: profile.registrationId || prev.registrationId,
+              ticketType: profile.ticketType || prev.ticketType,
+            }));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend getMyProfile fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live attendees from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed) {
+      api.attendees.getAll()
+        .then((backendAttendees) => {
+          if (backendAttendees && Array.isArray(backendAttendees) && backendAttendees.length > 0) {
+            setAttendees((prev) => {
+              const bMap = new Map(backendAttendees.map((a: any) => [a.id, a]));
+              const updated = prev.map((a) => {
+                const b = bMap.get(a.id);
+                if (b) {
+                  return {
+                    ...a,
+                    checkedIn: b.checkedIn ?? a.checkedIn,
+                    name: b.name || a.name,
+                    designation: b.designation || a.designation,
+                    company: b.company || a.company,
+                    bio: b.bio || a.bio,
+                    avatar: b.avatar || b.avatarUrl || a.avatar,
+                    linkedin: b.linkedin || a.linkedin,
+                    twitter: b.twitter || a.twitter,
+                    email: b.email || a.email,
+                    mobile: b.mobile || a.mobile,
+                    interests: (b.interests && b.interests.length > 0) ? b.interests : a.interests,
+                    skills: (b.skills && b.skills.length > 0) ? b.skills : a.skills,
+                    ticketType: b.ticketType || a.ticketType,
+                    registrationId: b.registrationId || a.registrationId,
+                  };
+                }
+                return a;
+              });
+              const existingIds = new Set(prev.map((a) => a.id));
+              const brandNew = backendAttendees
+                .filter((b: any) => !existingIds.has(b.id))
+                .map((b: any) => ({
+                  id: b.id,
+                  name: b.name,
+                  designation: b.designation || '',
+                  company: b.company || '',
+                  role: (b.category as any) || (b.role as any) || 'delegate',
+                  bio: b.bio || `Professional at ${b.company || 'the summit'} focusing on tech innovation.`,
+                  interests: (b.interests && b.interests.length > 0) ? b.interests : ['Semiconductors', 'Technology'],
+                  skills: (b.skills && b.skills.length > 0) ? b.skills : ['Engineering', 'Architecture'],
+                  email: b.email || '',
+                  mobile: b.mobile || '',
+                  avatar: b.avatar || b.avatarUrl || '',
+                  linkedin: b.linkedin || '',
+                  twitter: b.twitter || '',
+                  checkedIn: Boolean(b.checkedIn),
+                  registrationId: b.registrationId || `#${b.id.slice(-4)}`,
+                  ticketType: b.ticketType || 'Delegate',
+                  privacy: {
+                    preset: 'Connections Only' as const,
+                    shareEmail: true,
+                    sharePhone: true,
+                    shareLinkedIn: true,
+                    shareTwitter: false,
+                  },
+                }));
+              return [...updated, ...brandNew];
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend attendees fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live exhibitor leads from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'exhibitor') {
+      api.exhibitor.getLeads()
+        .then((backendLeads) => {
+          if (backendLeads && Array.isArray(backendLeads) && backendLeads.length > 0) {
+            setLeads(backendLeads.map((l: any) => ({
+              id: l.id,
+              personId: l.personId || l.attendeeId || '',
+              name: l.name || '',
+              avatar: l.avatar || '',
+              company: l.company || '',
+              designation: l.designation || '',
+              email: l.email || '',
+              mobile: l.mobile || '',
+              linkedin: l.linkedin || '',
+              source: l.source || 'Booth Scan',
+              status: (l.status as any) || 'New',
+              interests: l.interests || [],
+              notes: l.notes || '',
+              capturedAt: l.capturedAt || 'Recently',
+              boothId: l.boothId || '',
+              productsViewed: l.productsViewed || [],
+              syncStatus: 'synced' as const,
+            })));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend leads fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live exhibitor products from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed && role === 'exhibitor') {
+      api.exhibitor.getProducts()
+        .then((backendProducts) => {
+          if (backendProducts && Array.isArray(backendProducts) && backendProducts.length > 0) {
+            setProducts((prev) => {
+              const bMap = new Map(backendProducts.map((p: any) => [p.id, p]));
+              const updated = prev.map((p) => {
+                const b = bMap.get(p.id);
+                if (b) {
+                  return {
+                    ...p,
+                    name: b.name || p.name,
+                    tagline: b.tagline || p.tagline,
+                    category: b.category || p.category,
+                    views: typeof b.views === 'number' ? b.views : p.views,
+                    enquiries: typeof b.enquiries === 'number' ? b.enquiries : p.enquiries,
+                    interestedVisitorsCount: typeof b.interestedVisitorsCount === 'number' ? b.interestedVisitorsCount : p.interestedVisitorsCount,
+                    overview: b.overview || p.overview,
+                    features: b.features || p.features,
+                    benefits: b.benefits || p.benefits,
+                    useCases: b.useCases || p.useCases,
+                    resources: b.resources ? {
+                      brochureUrl: b.resources.brochureUrl,
+                      videoUrl: b.resources.videoUrl,
+                      websiteUrl: b.resources.websiteUrl,
+                    } : p.resources,
+                  };
+                }
+                return p;
+              });
+              const existingIds = new Set(prev.map((p) => p.id));
+              const brandNew = backendProducts
+                .filter((b: any) => !existingIds.has(b.id))
+                .map((b: any) => ({
+                  id: b.id,
+                  name: b.name,
+                  tagline: b.tagline,
+                  company: b.company || 'Truechip Solutions',
+                  category: b.category,
+                  booth: b.booth || 'Hall 1 · A-02',
+                  image: b.image || '/images/products/pcie.png',
+                  views: b.views || 0,
+                  enquiries: b.enquiries || 0,
+                  interestedVisitorsCount: b.interestedVisitorsCount || 0,
+                  overview: b.overview || '',
+                  features: b.features || [],
+                  benefits: b.benefits || [],
+                  useCases: b.useCases || [],
+                  resources: {
+                    brochureUrl: b.resources?.brochureUrl || '',
+                    videoUrl: b.resources?.videoUrl || '',
+                    websiteUrl: b.resources?.websiteUrl || '',
+                  },
+                }));
+              return [...updated, ...brandNew];
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend products fetch skipped:', err);
+        });
+    }
+  }, [role, hasAccessConfirmed]);
+
+  // Sync live poll from MySQL backend
+  useEffect(() => {
+    if (hasAccessConfirmed) {
+      api.sessions.getPollById('poll-mpss26-01')
+        .then((p) => {
+          if (p && p.id && p.options) {
+            setPoll((prev) => ({
+              ...prev,
+              id: p.id,
+              sessionId: p.sessionId || prev.sessionId,
+              question: p.question || prev.question,
+              status: (p.status as any) || prev.status,
+              totalVotes: typeof p.totalVotes === 'number' ? p.totalVotes : prev.totalVotes,
+              voterIds: p.hasVoted && currentUser ? Array.from(new Set([...prev.voterIds, currentUser.id])) : prev.voterIds,
+              options: p.options.map((opt: any) => ({
+                id: opt.id,
+                text: opt.text,
+                votes: opt.votes,
+              })),
+            }));
+          }
+        })
+        .catch((err) => {
+          console.warn('Backend poll fetch skipped:', err);
+        });
+    }
+  }, [hasAccessConfirmed, currentUser]);
+
+  // Set role with tab preservation & auth token re-alignment
   const setRole = useCallback((newRole: DemoRole) => {
     setRoleState(newRole);
-    showToast(`Switched to ${newRole === 'delegate' ? 'Delegate (Santosh Kumar)' : newRole === 'exhibitor' ? 'Exhibitor (Truechip Booth A-02)' : 'Organizer Console'} view`, 'info');
+    api.clearAuth();
+    api.ensureAuthenticated(newRole).catch(() => {});
+    showToast(`Switched to ${newRole === 'delegate' ? 'Delegate (Hari Gupta)' : newRole === 'exhibitor' ? 'Exhibitor (Truechip Booth A-02)' : 'Organizer Console'} view`, 'info');
   }, [showToast]);
 
   // Connectivity toggle
@@ -411,15 +774,87 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveDelegateTab('home');
   }, []);
 
-  // Update privacy
-  const updateCurrentUser = useCallback((data: Partial<Person>) => {
+  // Update current user profile with MySQL backend synchronization
+  const updateCurrentUser = useCallback(async (data: Partial<Person>) => {
+    // 1. Optimistically update local React state
     setCurrentUser((prev) => {
       const updatedUser = { ...prev, ...data };
       setAttendees((att) => att.map((a) => (a.id === prev.id ? updatedUser : a)));
       return updatedUser;
     });
-    showToast('Profile updated ✓', 'success');
+
+    // 2. Persist to MySQL database via Spring Boot API
+    try {
+      const res = await api.attendees.updateMyProfile(data);
+      if (res && res.name) {
+        setCurrentUser((prev) => {
+          const fresh: Person = {
+            ...prev,
+            ...data,
+            name: res.name || prev.name,
+            designation: res.designation || prev.designation,
+            company: res.company || prev.company,
+            bio: res.bio || prev.bio,
+            email: res.email || prev.email,
+            mobile: res.mobile || prev.mobile,
+            avatar: res.avatar || prev.avatar,
+            linkedin: res.linkedin || prev.linkedin,
+            twitter: res.twitter || prev.twitter,
+            interests: (res.interests && res.interests.length > 0) ? res.interests : prev.interests,
+            skills: (res.skills && res.skills.length > 0) ? res.skills : prev.skills,
+          };
+          setAttendees((att) => att.map((a) => (a.id === prev.id ? fresh : a)));
+          return fresh;
+        });
+      }
+      showToast('Profile saved & synced to MySQL ✓', 'success');
+    } catch (err: any) {
+      console.warn('Backend updateMyProfile failed:', err);
+      showToast('Profile updated locally (offline mode)', 'info');
+    }
   }, [showToast]);
+
+  // Update specific attendee info (used by organizer and profile modals)
+  const updateAttendee = useCallback(async (id: string, data: Partial<Person>) => {
+    // 1. Optimistic update
+    setAttendees((att) => att.map((a) => (a.id === id ? { ...a, ...data } : a)));
+    if (id === currentUser.id) {
+      setCurrentUser((prev) => ({ ...prev, ...data }));
+    }
+
+    // 2. Persist to MySQL database via organizer or attendee API
+    try {
+      const res = await (role === 'organizer'
+        ? api.organizer.updateAttendee(id, data)
+        : api.attendees.updateAttendee(id, data));
+      if (res) {
+        setAttendees((att) => att.map((a) => {
+          if (a.id === id) {
+            return {
+              ...a,
+              ...data,
+              name: res.name || a.name,
+              designation: res.designation || a.designation,
+              company: res.company || a.company,
+              bio: res.bio || a.bio,
+              email: res.email || a.email,
+              mobile: res.mobile || a.mobile,
+              avatar: res.avatar || a.avatar,
+              linkedin: res.linkedin || a.linkedin,
+              twitter: res.twitter || a.twitter,
+              interests: (res.interests && res.interests.length > 0) ? res.interests : a.interests,
+              skills: (res.skills && res.skills.length > 0) ? res.skills : a.skills,
+            };
+          }
+          return a;
+        }));
+      }
+      showToast('Attendee record updated & saved to MySQL ✓', 'success');
+    } catch (err: any) {
+      console.warn('Backend updateAttendee failed:', err);
+      showToast('Attendee updated locally (offline mode)', 'info');
+    }
+  }, [role, currentUser.id, showToast]);
 
   const updateCurrentUserPrivacy = useCallback((newPrivacy: Partial<PrivacyConsent>) => {
     setCurrentUser((prev) => {
@@ -454,8 +889,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { success: true, alreadyConnected: true };
     }
 
+    const tempConnId = `conn-${Date.now()}`;
     const newConnection: Connection = {
-      id: `conn-${Date.now()}`,
+      id: tempConnId,
       personId: targetPerson.id,
       personName: targetPerson.name,
       designation: targetPerson.designation,
@@ -481,11 +917,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     showToast(`Sent connection request to ${targetPerson.name} ✓`, 'success');
+
+    api.attendees.requestConnection(personId)
+      .then((res) => {
+        if (res && res.id) {
+          setConnections((prev) => prev.map((c) => c.id === tempConnId ? { ...c, id: res.id, status: res.status || c.status } : c));
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend requestConnection error:', err);
+      });
+
     return { success: true, alreadyConnected: false };
   }, [connections, attendees, isOnline, showToast]);
 
   // Disconnect from person
-  const disconnectFrom = useCallback((personId: string) => {
+  const disconnectFrom = useCallback(async (personId: string) => {
     const existing = connections.find((c) => c.personId === personId);
     if (!existing) return;
 
@@ -500,23 +947,46 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ...prev,
       totalConnections: Math.max(0, prev.totalConnections - 1),
     }));
+
+    try {
+      await api.attendees.disconnect(existing.id || personId);
+    } catch (err: any) {
+      console.warn('Backend disconnect error:', err);
+    }
   }, [connections, attendees, showToast]);
 
-  const acceptConnectionRequest = useCallback((personId: string) => {
-    setConnections(prev => prev.map(c => 
+  const acceptConnectionRequest = useCallback(async (personId: string) => {
+    const conn = connections.find((c) => c.personId === personId && c.type === 'received' && c.status === 'pending');
+    setConnections((prev) => prev.map((c) => 
       c.personId === personId && c.type === 'received' && c.status === 'pending'
         ? { ...c, status: 'connected', connectedAt: 'Just now' }
         : c
     ));
     showToast('Connection request accepted', 'success');
-  }, [showToast]);
+
+    if (conn && conn.id) {
+      try {
+        await api.attendees.acceptConnection(conn.id);
+      } catch (err: any) {
+        console.warn('Backend acceptConnection error:', err);
+      }
+    }
+  }, [connections, showToast]);
 
   const ignoreConnectionRequest = useCallback((personId: string) => {
     setConnections(prev => prev.filter(c => !(c.personId === personId && c.type === 'received' && c.status === 'pending')));
   }, []);
 
   // Save Lead (Exhibitor)
-  const saveLead = useCallback((leadData: Omit<Lead, 'id' | 'capturedAt'>) => {
+  const saveLead = useCallback(async (leadData: Omit<Lead, 'id' | 'capturedAt'>) => {
+    const tempLeadId = `lead-${Date.now()}`;
+    const newLead: Lead = {
+      ...leadData,
+      id: tempLeadId,
+      capturedAt: 'Just now',
+      syncStatus: isOnline ? 'synced' : 'pending',
+    };
+
     setLeads((prev) => {
       const existingIndex = prev.findIndex((l) => l.personId === leadData.personId);
       if (existingIndex >= 0) {
@@ -533,12 +1003,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         copy.splice(existingIndex, 1);
         return [updatedLead, ...copy];
       } else {
-        const newLead: Lead = {
-          ...leadData,
-          id: `lead-${Date.now()}`,
-          capturedAt: 'Just now',
-          syncStatus: isOnline ? 'synced' : 'pending',
-        };
         return [newLead, ...prev];
       }
     });
@@ -561,13 +1025,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!isOnline) {
       setSyncPendingCount((c) => c + 1);
       showToast(`Lead saved for ${leadData.name} (Sync pending)`, 'info');
-    } else {
+      return;
+    }
+
+    try {
+      const res = await api.exhibitor.captureLead({
+        attendeeId: leadData.personId,
+        status: leadData.status,
+        source: leadData.source,
+        notes: leadData.notes,
+        interests: leadData.interests,
+      });
+      if (res && res.id) {
+        setLeads((prev) =>
+          prev.map((l) => (l.id === tempLeadId ? { ...l, id: res.id, syncStatus: 'synced' } : l))
+        );
+      }
+      showToast(`Lead saved for ${leadData.name} as "${leadData.status}" ✓`, 'success');
+    } catch (err: any) {
+      console.warn('Backend captureLead error:', err);
       showToast(`Lead saved for ${leadData.name} as "${leadData.status}" ✓`, 'success');
     }
   }, [isOnline, showToast]);
 
   // Update Lead Status
-  const updateLeadStatus = useCallback((leadId: string, status: LeadStatus, notes?: string) => {
+  const updateLeadStatus = useCallback(async (leadId: string, status: LeadStatus, notes?: string) => {
     setLeads((prev) =>
       prev.map((l) =>
         l.id === leadId
@@ -575,7 +1057,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           : l
       )
     );
-    showToast(`Lead updated to ${status} ✓`, 'success');
+
+    try {
+      await api.exhibitor.updateLead(leadId, { status, notes });
+      showToast(`Lead updated to ${status} ✓`, 'success');
+    } catch (err: any) {
+      console.warn('Backend updateLead error:', err);
+      showToast(`Lead updated to ${status} ✓`, 'success');
+    }
   }, [showToast]);
 
   // Enquire product
@@ -645,43 +1134,97 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [showToast]);
 
   // Update product (Exhibitor)
-  const updateProduct = useCallback((productId: string, data: Partial<Product>) => {
+  const updateProduct = useCallback(async (productId: string, data: Partial<Product>) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === productId ? { ...p, ...data } : p))
     );
     showToast('Product updated successfully ✓', 'success');
+
+    try {
+      await api.exhibitor.updateProduct(productId, {
+        name: data.name,
+        tagline: data.tagline,
+        category: data.category,
+        overview: data.overview,
+        features: data.features,
+        benefits: data.benefits,
+        useCases: data.useCases,
+        imageUrl: data.image,
+        websiteUrl: data.resources?.websiteUrl,
+        brochureUrl: data.resources?.brochureUrl,
+      });
+    } catch (err: any) {
+      console.warn('Backend updateProduct error:', err);
+    }
   }, [showToast]);
 
   // Delete product (Exhibitor)
-  const deleteProduct = useCallback((productId: string) => {
+  const deleteProduct = useCallback(async (productId: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== productId));
     showToast('Product removed from showcase ✓', 'info');
+
+    try {
+      await api.exhibitor.deleteProduct(productId);
+    } catch (err: any) {
+      console.warn('Backend deleteProduct error:', err);
+    }
   }, [showToast]);
 
   // Add product (Exhibitor)
-  const addProduct = useCallback((productData: Omit<Product, 'id'>) => {
+  const addProduct = useCallback(async (productData: Omit<Product, 'id'>) => {
+    const tempId = `prod-truechip-${Date.now()}`;
     const newProduct: Product = {
       ...productData,
-      id: `prod-truechip-${Date.now()}`,
+      id: tempId,
     };
     setProducts((prev) => [newProduct, ...prev]);
     showToast('New product added to showcase ✓', 'success');
+
+    try {
+      const res = await api.exhibitor.createProduct({
+        name: productData.name,
+        tagline: productData.tagline,
+        category: productData.category,
+        overview: productData.overview || productData.tagline,
+        features: productData.features || [],
+        benefits: productData.benefits || [],
+        useCases: productData.useCases || [],
+        imageUrl: productData.image,
+        websiteUrl: productData.resources?.websiteUrl,
+        brochureUrl: productData.resources?.brochureUrl,
+      });
+      if (res && res.id) {
+        setProducts((prev) => prev.map((p) => p.id === tempId ? { ...p, id: res.id } : p));
+      }
+    } catch (err: any) {
+      console.warn('Backend createProduct error:', err);
+    }
   }, [showToast]);
 
   // Submit Q&A Question
-  const submitQuestion = useCallback((sessionId: string, text: string, isAnonymous: boolean) => {
+  const submitQuestion = useCallback(async (sessionId: string, text: string, isAnonymous: boolean) => {
     if (!text.trim()) return;
 
+    let createdId = `q-${Date.now()}`;
+    try {
+      const res = await api.sessions.submitQuestion(sessionId, text.trim(), isAnonymous);
+      if (res && res.id) {
+        createdId = res.id;
+      }
+    } catch (err: any) {
+      console.warn('Backend submitQuestion error:', err);
+    }
+
     const newQuestion: Question = {
-      id: `q-${Date.now()}`,
+      id: createdId,
       sessionId,
       text: text.trim(),
       authorName: isAnonymous ? 'Anonymous' : currentUser.name,
       authorId: isAnonymous ? 'usr-anon' : currentUser.id,
       isAnonymous,
       status: 'Submitted',
-      upvotes: 1,
-      upvotedBy: [currentUser.id],
+      upvotes: 0,
+      upvotedBy: [],
       createdAt: 'Just now',
     };
 
@@ -716,6 +1259,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             : item
         )
       );
+      api.sessions.removeQuestionUpvote(questionId).catch((err) => {
+        console.warn('Backend removeQuestionUpvote error:', err);
+      });
       return { success: true, message: 'Upvote removed' };
     } else {
       setQuestions((prev) =>
@@ -729,6 +1275,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             : item
         )
       );
+      api.sessions.upvoteQuestion(questionId).catch((err) => {
+        console.warn('Backend upvoteQuestion error:', err);
+      });
       showToast('Question upvoted ✓', 'success');
       return { success: true };
     }
@@ -743,7 +1292,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [showToast]);
 
   // Vote in Poll
-  const votePoll = useCallback((optionId: string) => {
+  const votePoll = useCallback(async (optionId: string) => {
     if (poll.voterIds.includes(currentUser.id)) {
       return { success: false, message: 'You have already voted.' };
     }
@@ -757,9 +1306,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ),
     }));
 
+    try {
+      const res = await api.sessions.votePoll(poll.id, optionId);
+      if (res && res.options) {
+        setPoll((prev) => ({
+          ...prev,
+          totalVotes: res.totalVotes,
+          options: res.options.map((opt: any) => ({
+            id: opt.id,
+            text: opt.text,
+            votes: opt.votes,
+          })),
+        }));
+      }
+    } catch (err: any) {
+      console.warn('Backend votePoll error:', err);
+    }
+
     showToast('Poll vote recorded ✓', 'success');
     return { success: true, message: 'Vote submitted ✓' };
-  }, [poll.voterIds, currentUser.id, showToast]);
+  }, [poll.id, poll.voterIds, currentUser.id, showToast]);
 
   // Toggle Poll Status (Open / Closed)
   const togglePollStatus = useCallback(() => {
@@ -771,7 +1337,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [showToast]);
 
   // Reset Poll to Initial State (for delegates / testing)
-  const resetPollVote = useCallback(() => {
+  const resetPollVote = useCallback(async () => {
     setPoll(INITIAL_POLL);
     if (typeof window !== 'undefined') {
       try {
@@ -780,15 +1346,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // ignore
       }
     }
+    try {
+      const res = await api.sessions.resetPollVote(poll.id);
+      if (res && res.options) {
+        setPoll((prev) => ({
+          ...prev,
+          totalVotes: res.totalVotes,
+          voterIds: [],
+          options: res.options.map((opt: any) => ({
+            id: opt.id,
+            text: opt.text,
+            votes: opt.votes,
+          })),
+        }));
+      }
+    } catch (err: any) {
+      console.warn('Backend resetPollVote error:', err);
+    }
     showToast('Poll reset to initial state ✓', 'info');
-  }, [showToast]);
+  }, [poll.id, showToast]);
 
   // Toggle check-in (Organizer)
-  const toggleCheckIn = useCallback((personId: string) => {
+  const toggleCheckIn = useCallback(async (personId: string) => {
+    let nextCheckedInState = false;
     setAttendees((prev) =>
       prev.map((p) => {
         if (p.id === personId) {
           const next = !p.checkedIn;
+          nextCheckedInState = next;
           const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           return {
             ...p,
@@ -805,7 +1390,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const isCurrentlyCheckedIn = target?.checkedIn;
       return {
         ...prev,
-        totalCheckedIn: isCurrentlyCheckedIn ? prev.totalCheckedIn - 1 : prev.totalCheckedIn + 1,
+        totalCheckedIn: isCurrentlyCheckedIn ? Math.max(0, prev.totalCheckedIn - 1) : prev.totalCheckedIn + 1,
       };
     });
 
@@ -814,10 +1399,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     showToast('Check-in status updated ✓', 'success');
+
+    // Call backend API when connected
+    try {
+      const res = await api.organizer.toggleCheckIn(personId);
+      if (res) {
+        setAttendees((prev) =>
+          prev.map((p) =>
+            p.id === personId
+              ? {
+                  ...p,
+                  checkedIn: res.checkedIn,
+                  checkInTime: res.checkInTime ? new Date(res.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+                }
+              : p
+          )
+        );
+      }
+    } catch (err: any) {
+      console.warn('Backend toggleCheckIn error:', err);
+    }
   }, [attendees, isOnline, showToast]);
 
   // Add Walk-in Attendee (Organizer)
-  const addWalkInAttendee = useCallback((data: {
+  const addWalkInAttendee = useCallback(async (data: {
     name: string;
     email: string;
     mobile: string;
@@ -825,31 +1430,73 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     designation: string;
     ticketType: string;
   }) => {
-    const newPerson: Person = {
-      id: `usr-walkin-${Date.now()}`,
-      name: data.name,
-      email: data.email,
-      mobile: data.mobile,
-      company: data.company,
-      designation: data.designation,
-      ticketType: data.ticketType,
-      role: 'delegate',
-      bio: 'On-site walk-in registered delegate.',
-      interests: ['General Tech', 'Networking'],
-      skills: [],
-      linkedin: '',
-      registrationId: `REG-MPSS26-${Math.floor(1000 + Math.random() * 9000)}`,
-      checkedIn: true,
-      checkInTime: '23 Oct 2026, Just now',
-      privacy: {
-        preset: 'Connections Only',
-        shareEmail: true,
-        sharePhone: false,
-        shareLinkedIn: true,
-      },
-    };
+    let newPerson: Person | null = null;
+    try {
+      const res = await api.organizer.registerWalkIn({
+        name: data.name,
+        email: data.email,
+        mobile: data.mobile,
+        company: data.company,
+        designation: data.designation,
+        ticketType: data.ticketType,
+        category: 'DELEGATE',
+      });
+      if (res && res.id) {
+        newPerson = {
+          id: res.id,
+          name: res.name,
+          email: res.email,
+          mobile: res.mobile,
+          company: res.company || data.company,
+          designation: res.designation || data.designation,
+          ticketType: res.ticketType || data.ticketType,
+          role: 'delegate',
+          bio: res.bio || 'On-site walk-in registered delegate.',
+          interests: res.interests || ['General Tech', 'Networking'],
+          skills: res.skills || [],
+          linkedin: res.linkedin || '',
+          registrationId: res.registrationId || `REG-MPSS26-${Math.floor(1000 + Math.random() * 9000)}`,
+          checkedIn: res.checkedIn ?? true,
+          checkInTime: '23 Oct 2026, Just now',
+          privacy: {
+            preset: 'Connections Only',
+            shareEmail: true,
+            sharePhone: false,
+            shareLinkedIn: true,
+          },
+        };
+      }
+    } catch (err: any) {
+      console.warn('Backend registerWalkIn error:', err);
+    }
 
-    setAttendees((prev) => [newPerson, ...prev]);
+    if (!newPerson) {
+      newPerson = {
+        id: `usr-walkin-${Date.now()}`,
+        name: data.name,
+        email: data.email,
+        mobile: data.mobile,
+        company: data.company,
+        designation: data.designation,
+        ticketType: data.ticketType,
+        role: 'delegate',
+        bio: 'On-site walk-in registered delegate.',
+        interests: ['General Tech', 'Networking'],
+        skills: [],
+        linkedin: '',
+        registrationId: `REG-MPSS26-${Math.floor(1000 + Math.random() * 9000)}`,
+        checkedIn: true,
+        checkInTime: '23 Oct 2026, Just now',
+        privacy: {
+          preset: 'Connections Only',
+          shareEmail: true,
+          sharePhone: false,
+          shareLinkedIn: true,
+        },
+      };
+    }
+
+    setAttendees((prev) => [newPerson!, ...prev]);
     setEvent((prev) => ({
       ...prev,
       totalRegistered: prev.totalRegistered + 1,
@@ -869,7 +1516,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [showToast]);
 
   // Toggle bookmark session
-  const toggleBookmarkSession = useCallback((sessionId: string) => {
+  const toggleBookmarkSession = useCallback(async (sessionId: string) => {
+    // 1. Optimistic UI update
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id === sessionId) {
@@ -880,6 +1528,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return s;
       })
     );
+
+    // 2. Persist to MySQL backend and confirm response
+    try {
+      const res = await api.sessions.toggleBookmark(sessionId);
+      if (res && typeof res.isBookmarked === 'boolean') {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, isBookmarked: res.isBookmarked } : s))
+        );
+      }
+    } catch (err: any) {
+      console.warn('Backend toggleBookmark error:', err);
+    }
   }, [showToast]);
 
   // Update session
@@ -888,13 +1548,61 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((s) => (s.id === sessionId ? { ...s, ...data } : s))
     );
     showToast('Session updated successfully ✓', 'success');
-  }, [showToast]);
+
+    if (data.status && Object.keys(data).length === 1) {
+      api.organizer.updateSessionStatus(sessionId, data.status).catch((err) => {
+        console.warn('Backend updateSessionStatus error:', err);
+      });
+    } else {
+      const existing = sessions.find((s) => s.id === sessionId);
+      if (existing) {
+        const merged = { ...existing, ...data };
+        api.organizer.updateSession(sessionId, {
+          title: merged.title,
+          track: merged.track,
+          day: merged.day,
+          timeRange: merged.timeRange,
+          room: merged.room,
+          status: merged.status,
+          speakerName: merged.speakerName,
+          speakerDesignation: merged.speakerDesignation,
+          speakerCompany: merged.speakerCompany,
+          description: merged.description,
+          takeaways: merged.takeaways || [],
+        }).catch((err) => {
+          console.warn('Backend updateSession error:', err);
+        });
+      }
+    }
+  }, [sessions, showToast]);
 
   // Create session
-  const createSession = useCallback((sessionData: Omit<Session, 'id' | 'attendanceCount' | 'questionsCount'>) => {
+  const createSession = useCallback(async (sessionData: Omit<Session, 'id' | 'attendanceCount' | 'questionsCount'>) => {
+    let assignedId = `sess-${Date.now()}`;
+    try {
+      const res = await api.organizer.createSession({
+        title: sessionData.title,
+        track: sessionData.track,
+        day: sessionData.day,
+        timeRange: sessionData.timeRange,
+        room: sessionData.room,
+        status: sessionData.status,
+        speakerName: sessionData.speakerName,
+        speakerDesignation: sessionData.speakerDesignation,
+        speakerCompany: sessionData.speakerCompany,
+        description: sessionData.description,
+        takeaways: sessionData.takeaways || [],
+      });
+      if (res && res.id) {
+        assignedId = res.id;
+      }
+    } catch (err: any) {
+      console.warn('Backend createSession error:', err);
+    }
+
     const newSession: Session = {
       ...sessionData,
-      id: `sess-${Date.now()}`,
+      id: assignedId,
       attendanceCount: 0,
       questionsCount: 0,
     };
@@ -906,6 +1614,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteSession = useCallback((sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     showToast('Session deleted', 'info');
+
+    api.organizer.deleteSession(sessionId).catch((err) => {
+      console.warn('Backend deleteSession error:', err);
+    });
   }, [showToast]);
 
   // Reset all data
@@ -973,6 +1685,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     currentUser,
     setCurrentUser,
     updateCurrentUser,
+    updateAttendee,
     updateCurrentUserPrivacy,
     attendees,
     setAttendees,
@@ -1041,6 +1754,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     event,
     currentUser,
     updateCurrentUser,
+    updateAttendee,
     updateCurrentUserPrivacy,
     attendees,
     connections,
