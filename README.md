@@ -7,7 +7,7 @@
 ## Executive Overview
 EventSphere is the modern digital experience layer placed on top of an existing registration system. Attendees are already registered in the external portal; EventSphere powers on-site engagement: credential verification, mutual QR badge scanning, privacy-first contact sharing, session participation (session-scoped Q&A & polls), sponsor lead capture, product interest tracking, and real-time organizer intelligence.
 
----
+-----
 
 ## Tech Stack
 - **Framework:** Next.js 14 (App Router) + React 18
