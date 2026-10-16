@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../../lib/store';
+import { api, ImportResult } from '../../lib/api';
 import {
   Search,
   Download,
@@ -26,7 +27,6 @@ export const OrganizerAttendees: React.FC = () => {
     attendees,
     toggleCheckIn,
     addWalkInAttendee,
-    importAttendeesMock,
     showToast,
     event,
     updateAttendee,
@@ -34,6 +34,7 @@ export const OrganizerAttendees: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'All' | 'Delegates' | 'VIP' | 'Speakers' | 'Exhibitors'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
   const [isEditingPerson, setIsEditingPerson] = useState(false);
   const [isSavingPerson, setIsSavingPerson] = useState(false);
@@ -48,11 +49,22 @@ export const OrganizerAttendees: React.FC = () => {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(11);
+  const [serverAttendees, setServerAttendees] = useState<Person[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Reset to page 1 whenever search query, filter tab, or page size changes
+  // Debounce search query by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset to page 1 whenever debounced search query, filter tab, or page size changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, activeTab, pageSize]);
+  }, [debouncedQuery, activeTab, pageSize]);
 
   // Modals
   const [showImportModal, setShowImportModal] = useState(false);
@@ -66,37 +78,101 @@ export const OrganizerAttendees: React.FC = () => {
   const [walkInDesignation, setWalkInDesignation] = useState('');
   const [walkInTicket, setWalkInTicket] = useState('Full Access Delegate Pass');
 
-  // CSV column mapping state
+  // Real CSV file upload & import state
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [mappingStep, setMappingStep] = useState<'upload' | 'mapping' | 'complete'>('upload');
-  const [importedRowCount, setImportedRowCount] = useState(120);
 
-  // Filter attendees
-  const filteredAttendees = attendees.filter((person) => {
-    const q = searchQuery.toLowerCase().trim();
-    const regId = (person.registrationId || '').toLowerCase();
-    const matchesSearch =
-      q === '' ||
-      person.name.toLowerCase().includes(q) ||
-      person.company.toLowerCase().includes(q) ||
-      person.designation.toLowerCase().includes(q) ||
-      person.email.toLowerCase().includes(q) ||
-      regId.includes(q);
+  // Fetch attendees from backend using server-side pagination & query
+  const fetchAttendees = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const categoryParam =
+        activeTab === 'Delegates'
+          ? 'DELEGATE'
+          : activeTab === 'VIP'
+          ? 'VIP'
+          : activeTab === 'Speakers'
+          ? 'SPEAKER'
+          : activeTab === 'Exhibitors'
+          ? 'EXHIBITOR'
+          : undefined;
 
-    if (!matchesSearch) return false;
+      const res = await api.organizer.getAttendees({
+        query: debouncedQuery.trim() || undefined,
+        category: categoryParam,
+        page: currentPage - 1,
+        size: pageSize,
+      });
 
-    if (activeTab === 'Delegates') return person.role === 'delegate' || (!person.role && !person.ticketType?.toLowerCase().includes('speaker') && !person.ticketType?.toLowerCase().includes('vip') && !person.ticketType?.toLowerCase().includes('exhibitor'));
-    if (activeTab === 'VIP') return person.role === 'vip' || person.ticketType?.toLowerCase().includes('vip');
-    if (activeTab === 'Speakers') return person.role === 'speaker' || person.ticketType?.toLowerCase().includes('speaker');
-    if (activeTab === 'Exhibitors') return person.role === 'exhibitor_staff' || person.ticketType?.toLowerCase().includes('exhibitor');
-    return true; // 'All'
-  });
+      if (res && res.items) {
+        const mapped: Person[] = res.items.map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          designation: b.designation || '',
+          company: b.company || '',
+          role: (b.category?.toLowerCase() as any) || 'delegate',
+          bio: b.bio || '',
+          interests: b.interests || [],
+          skills: b.skills || [],
+          email: b.email || '',
+          mobile: b.mobile || '',
+          avatar: b.avatarUrl || b.avatar || '',
+          linkedin: b.linkedin || '',
+          twitter: b.twitter || '',
+          checkedIn: Boolean(b.checkedIn),
+          checkInTime: b.checkInTime ? new Date(b.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+          registrationId: b.registrationId || `#${b.id.slice(-4)}`,
+          ticketType: b.ticketType || 'Delegate',
+          privacy: {
+            preset: 'Connections Only',
+            shareEmail: true,
+            sharePhone: true,
+            shareLinkedIn: true,
+          },
+        }));
+        setServerAttendees(mapped);
+        setTotalCount(res.total);
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch organizer attendees from backend:', err);
+      // Fallback to local store filtering if backend fails
+      const q = debouncedQuery.toLowerCase().trim();
+      const localFiltered = attendees.filter((p) => {
+        const regId = (p.registrationId || '').toLowerCase();
+        const matchesSearch =
+          q === '' ||
+          p.name.toLowerCase().includes(q) ||
+          p.company.toLowerCase().includes(q) ||
+          p.designation.toLowerCase().includes(q) ||
+          p.email.toLowerCase().includes(q) ||
+          regId.includes(q);
+        if (!matchesSearch) return false;
+        if (activeTab === 'Delegates') return p.role === 'delegate';
+        if (activeTab === 'VIP') return p.role === 'vip';
+        if (activeTab === 'Speakers') return p.role === 'speaker';
+        if (activeTab === 'Exhibitors') return p.role === 'exhibitor_staff';
+        return true;
+      });
+      setServerAttendees(localFiltered.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+      setTotalCount(localFiltered.length);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [debouncedQuery, activeTab, currentPage, pageSize, attendees]);
 
-  const totalRecords = event.totalRegistered || 2438;
+  useEffect(() => {
+    fetchAttendees();
+  }, [fetchAttendees]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredAttendees.length / pageSize));
+  const totalRecords = totalCount || event.totalRegistered || 0;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-  const paginatedAttendees = filteredAttendees.slice(startIndex, startIndex + pageSize);
+  const paginatedAttendees = serverAttendees;
 
   const getPageNumbers = () => {
     if (totalPages <= 7) {
@@ -157,11 +233,11 @@ export const OrganizerAttendees: React.FC = () => {
     showToast('Attendee roster exported successfully ✓', 'success');
   };
 
-  const handleWalkInSubmit = (e: React.FormEvent) => {
+  const handleWalkInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!walkInName || !walkInEmail) return;
 
-    addWalkInAttendee({
+    await addWalkInAttendee({
       name: walkInName,
       email: walkInEmail,
       mobile: walkInMobile || '+91 9800000000',
@@ -177,12 +253,39 @@ export const OrganizerAttendees: React.FC = () => {
     setWalkInCompany('');
     setWalkInDesignation('');
     setShowWalkInModal(false);
+    fetchAttendees();
   };
 
-  const handleConfirmImport = () => {
-    importAttendeesMock(importedRowCount);
-    setShowImportModal(false);
-    setMappingStep('upload');
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setImportError('File size exceeds the 5MB limit.');
+      setSelectedFile(null);
+      return;
+    }
+    setImportError(null);
+    setSelectedFile(file);
+    setMappingStep('mapping');
+  };
+
+  const handleImportSubmit = async () => {
+    if (!selectedFile) return;
+    setIsImporting(true);
+    setImportError(null);
+    try {
+      const res = await api.organizer.importAttendeesCsv(selectedFile);
+      setImportResult(res);
+      setMappingStep('complete');
+      showToast(`Imported ${res.totalImported} attendees (${res.totalSkipped} skipped) ✓`, 'success');
+      fetchAttendees();
+    } catch (err: any) {
+      console.warn('CSV import failed:', err);
+      setImportError(err.message || 'Failed to import CSV file');
+      showToast(err.message || 'Import failed', 'error');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -343,9 +446,9 @@ export const OrganizerAttendees: React.FC = () => {
         {/* Table Footer / Pagination */}
         <div className="py-2.5 px-5 border-t border-[#E2E8F0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#64748B] bg-[#F8FAFC]">
           <div>
-            Showing {filteredAttendees.length === 0 ? 0 : startIndex + 1}
+            Showing {totalRecords === 0 ? 0 : startIndex + 1}
             {paginatedAttendees.length > 1 ? `–${startIndex + paginatedAttendees.length}` : ''} of{' '}
-            {filteredAttendees.length.toLocaleString()} · sorted by registration order
+            {totalRecords.toLocaleString()} · sorted by registration order
           </div>
 
           <div className="flex items-center gap-1 font-medium select-none">
@@ -656,59 +759,85 @@ export const OrganizerAttendees: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
               <div>
                 <h3 className="text-sm font-semibold text-[#172033]">Import External Registrations</h3>
-                <p className="text-xs text-[#64748B] mt-0.5">Map CSV columns to EventSphere attendee schema</p>
+                <p className="text-xs text-[#64748B] mt-0.5">Upload a CSV file to register attendees (Max 5MB)</p>
               </div>
               <button
-                onClick={() => setShowImportModal(false)}
+                onClick={() => {
+                  setShowImportModal(false);
+                  setSelectedFile(null);
+                  setImportResult(null);
+                  setImportError(null);
+                  setMappingStep('upload');
+                }}
                 className="p-1 rounded-md text-[#64748B] hover:text-[#172033] hover:bg-[#F1F5F9] cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            {importError && (
+              <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                {importError}
+              </div>
+            )}
+
             {mappingStep === 'upload' && (
               <div className="space-y-3">
                 <div
-                  onClick={() => setMappingStep('mapping')}
+                  onClick={() => fileInputRef.current?.click()}
                   className="border-2 border-dashed border-[#E2E8F0] hover:border-[#3563F6] rounded-xl p-5 text-center cursor-pointer transition-colors bg-[#F8FAFC]"
                 >
                   <FileSpreadsheet className="w-8 h-8 text-[#3563F6] mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-[#172033]">Click to select CSV File</p>
+                  <p className="text-xs font-semibold text-[#172033]">
+                    {selectedFile ? selectedFile.name : 'Click to select CSV File'}
+                  </p>
                   <p className="text-[11px] text-[#64748B] mt-1">
-                    Simulating: <strong className="text-[#172033]">mpss26_external_registrations_batch2.csv</strong> (120 rows)
+                    {selectedFile
+                      ? `${(selectedFile.size / 1024).toFixed(1)} KB · Click to change file`
+                      : 'Accepts CSV with name, email, company, designation, ticketType'}
                   </p>
                 </div>
-                <button
-                  onClick={() => setMappingStep('mapping')}
-                  className="w-full py-2 bg-[#3563F6] hover:bg-[#2554E5] text-white text-xs font-medium rounded-lg shadow-2xs transition-colors cursor-pointer"
-                >
-                  Proceed to Column Mapping
-                </button>
+                {selectedFile && (
+                  <button
+                    onClick={() => setMappingStep('mapping')}
+                    className="w-full py-2 bg-[#3563F6] hover:bg-[#2554E5] text-white text-xs font-medium rounded-lg shadow-2xs transition-colors cursor-pointer"
+                  >
+                    Proceed to Column Verification
+                  </button>
+                )}
               </div>
             )}
 
             {mappingStep === 'mapping' && (
               <div className="space-y-3 text-xs">
                 <p className="text-[#64748B]">
-                  Verify CSV column mapping for 120 attendee records:
+                  Verify CSV column mapping for <strong className="text-[#172033]">{selectedFile?.name}</strong>:
                 </p>
 
                 <div className="space-y-2 bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
                   <div className="flex items-center justify-between">
                     <span className="text-[#64748B]">Full Name:</span>
-                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "Full_Name"</span>
+                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "name" or "full_name"</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[#64748B]">Email Address:</span>
-                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "Email"</span>
+                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "email"</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[#64748B]">Organization:</span>
-                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "Company"</span>
+                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "company"</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[#64748B]">Ticket Tier:</span>
-                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "Pass_Category"</span>
+                    <span className="text-[#64748B]">Ticket Tier / Category:</span>
+                    <span className="font-mono font-semibold text-[#172033]">CSV Col: "ticket_type" or "category"</span>
                   </div>
                 </div>
 
@@ -720,13 +849,63 @@ export const OrganizerAttendees: React.FC = () => {
                     Back
                   </button>
                   <button
-                    onClick={handleConfirmImport}
-                    className="flex-1 py-2 bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-medium rounded-lg shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    onClick={handleImportSubmit}
+                    disabled={isImporting}
+                    className="flex-1 py-2 bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-medium rounded-lg shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <Check className="w-4 h-4" />
-                    <span>Confirm & Import 120 Records</span>
+                    <span>{isImporting ? 'Importing CSV...' : 'Confirm & Import to Backend'}</span>
                   </button>
                 </div>
+              </div>
+            )}
+
+            {mappingStep === 'complete' && importResult && (
+              <div className="space-y-3 text-xs">
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-semibold">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>CSV Import Completed</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-center font-mono">
+                    <div className="bg-white p-2 rounded border border-emerald-100">
+                      <span className="text-[10px] text-[#64748B] block font-sans">Processed</span>
+                      <strong className="text-emerald-900 text-sm">{importResult.totalProcessed}</strong>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-100">
+                      <span className="text-[10px] text-[#64748B] block font-sans">Imported</span>
+                      <strong className="text-emerald-900 text-sm">{importResult.totalImported}</strong>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-100">
+                      <span className="text-[10px] text-[#64748B] block font-sans">Skipped</span>
+                      <strong className="text-amber-800 text-sm">{importResult.totalSkipped}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
+                    <span className="font-semibold text-amber-800 text-[11px]">Notice ({importResult.errors.length} skipped rows):</span>
+                    <div className="max-h-24 overflow-y-auto text-[11px] text-amber-700 space-y-0.5 font-mono">
+                      {importResult.errors.map((err, i) => (
+                        <div key={i}>{err}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setSelectedFile(null);
+                    setImportResult(null);
+                    setImportError(null);
+                    setMappingStep('upload');
+                  }}
+                  className="w-full py-2 bg-[#14233B] hover:bg-[#1E304F] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer"
+                >
+                  Done
+                </button>
               </div>
             )}
           </div>

@@ -3278,8 +3278,6 @@ export const INITIAL_ATTENDEES: Person[] = [
     skills: ["Leadership", "Semiconductor Strategy", "Engineering"],
     privacy: { ...PRIVATE_CONTACT_DEFAULT, shareLinkedIn: true },
   },
-
-  ...GENERATED_ATTENDEES,
 ];
 
 export const INITIAL_CONNECTIONS: Connection[] = [
@@ -4276,10 +4274,10 @@ export const RECOMMENDED_PEOPLE_IDS: string[] = [
   'speaker-dr-kamaljeet-singh',
   'speaker-dr-manish-hooda',
   'speaker-jaswinder-ahuja',
-  'speaker-arundhati-sanath-moderator',
-  'speaker-chitra-hariharan-moderator',
-  'speaker-sanjeev-sehgal-moderator',
-  'speaker-nitin-kishor-moderator',
+  'speaker-arundhati-sanath',
+  'speaker-chitra-hariharan',
+  'speaker-sanjeev-sehgal',
+  'speaker-nitin-kishor',
   'speaker-narendra-sen',
 ];
 

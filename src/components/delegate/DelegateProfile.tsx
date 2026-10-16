@@ -24,14 +24,13 @@ export const DelegateProfile: React.FC<DelegateProfileProps> = () => {
     setViewSavedPeopleOnly,
     setViewSavedCompaniesOnly,
     savedCompanyIds,
-    setHasAccessConfirmed,
+    logout,
     setScheduleSubTab,
   } = useStore();
 
   const handleLogout = () => {
-    setHasAccessConfirmed(false);
+    logout();
     router.push('/delegate/home');
-    showToast('Logged out successfully', 'info');
   };
 
   const savedSessionsCount = sessions.filter((s) => s.isBookmarked).length;

@@ -3,7 +3,7 @@
  * Connects mpss26-frontend with eventsphere-backend (Spring Boot 3.3.4)
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_BASE_URL = typeof window !== 'undefined' ? '' : (process.env.BACKEND_URL || 'http://localhost:8080');
 const TOKEN_KEY = 'eventsphere_auth_token';
 const USER_KEY = 'eventsphere_auth_user';
 
@@ -13,8 +13,15 @@ export interface ApiUser {
   mobile: string;
   email: string;
   role: 'ROLE_DELEGATE' | 'ROLE_EXHIBITOR' | 'ROLE_ORGANIZER';
+  category?: string;
   exhibitorId?: string | null;
+  eventId?: string;
+  company?: string;
+  designation?: string;
+  avatar?: string;
+  ticketType?: string;
   checkedIn?: boolean;
+  boothNumber?: string;
 }
 
 export interface AuthResponse {
@@ -25,14 +32,16 @@ export interface AuthResponse {
 }
 
 export interface OrganizerMetrics {
-  eventId: string;
+  eventId?: string;
   totalRegistered: number;
   totalCheckedIn: number;
   checkInRate: number;
   totalExhibitors: number;
   activeExhibitors: number;
+  totalSpeakers?: number;
   totalSessions: number;
   liveSessions: number;
+  totalConnections?: number;
   totalLeads: number;
   topExhibitors: Array<{
     id: string;
@@ -40,6 +49,15 @@ export interface OrganizerMetrics {
     booth: string;
     leads: number;
   }>;
+}
+
+export interface OrganizerExhibitor {
+  id: string;
+  company: string;
+  booth: string;
+  category: string;
+  logoUrl?: string;
+  leadCount: number;
 }
 
 export interface CheckInResult {
@@ -121,52 +139,38 @@ class ApiClient {
     return this.token;
   }
 
+  public getUser(): ApiUser | null {
+    if (typeof window !== 'undefined') {
+      try {
+        const u = localStorage.getItem(USER_KEY);
+        if (u) return JSON.parse(u);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
   public clearAuth() {
     this.token = null;
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith('eventsphere_')) {
+            localStorage.removeItem(key);
+          }
+        });
       } catch {
         // ignore
       }
     }
   }
 
-  public async ensureAuthenticated(roleHint?: string): Promise<string | null> {
-    let token = this.getToken();
-    if (token) return token;
-
-    let mobile = '9876543210'; // default delegate: Hari Gupta
-    if (roleHint === 'organizer') mobile = '9876543212';
-    else if (roleHint === 'exhibitor') mobile = '9876543211';
-    else if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('eventsphere_mpss26_store_v13');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.role === 'organizer') mobile = '9876543212';
-          else if (parsed.role === 'exhibitor') mobile = '9876543211';
-        }
-      } catch {}
-    }
-
-    try {
-      const res = await this.auth.login('MPSS26', mobile);
-      return res.token;
-    } catch (err) {
-      console.warn('Auto-auth failed:', err);
-      return null;
-    }
-  }
-
-  private async request<T>(endpoint: string, options: RequestInit & { _retry?: boolean } = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-    let token = this.getToken();
-
-    if (!token && !endpoint.includes('/auth/access') && typeof window !== 'undefined') {
-      token = await this.ensureAuthenticated();
-    }
+    const token = this.getToken();
 
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
@@ -185,12 +189,17 @@ class ApiClient {
       headers,
     });
 
-    if (response.status === 401 && !options._retry && !endpoint.includes('/auth/access')) {
+    if (response.status === 401 && !endpoint.includes('/auth/access')) {
       this.clearAuth();
-      const newToken = await this.ensureAuthenticated();
-      if (newToken) {
-        return this.request<T>(endpoint, { ...options, _retry: true });
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('eventsphere_mpss26_store_v13');
+          window.dispatchEvent(new CustomEvent('eventsphere:unauthorized'));
+        } catch {
+          // ignore
+        }
       }
+      throw new Error('Session expired or unauthorized. Please log in.');
     }
 
     if (response.status === 204) {
@@ -220,6 +229,61 @@ class ApiClient {
       return response.json() as Promise<T>;
     }
     return response.text() as unknown as Promise<T>;
+  }
+
+  private async requestWithResponse<T>(endpoint: string, options: RequestInit = {}): Promise<{ data: T; headers: Headers }> {
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+    const token = this.getToken();
+
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (response.status === 401 && !endpoint.includes('/auth/access')) {
+      this.clearAuth();
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('eventsphere_mpss26_store_v13');
+          window.dispatchEvent(new CustomEvent('eventsphere:unauthorized'));
+        } catch {
+          // ignore
+        }
+      }
+      throw new Error('Session expired or unauthorized. Please log in.');
+    }
+
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      let errorMessage = `Request failed with status ${response.status}`;
+      if (contentType.includes('application/json')) {
+        try {
+          const errData = await response.json();
+          errorMessage = errData.message || errData.error || errorMessage;
+        } catch {
+          // ignore
+        }
+      } else {
+        const text = await response.text();
+        if (text) errorMessage = text;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = (response.status === 204 ? {} : await response.json()) as T;
+    return { data, headers: response.headers };
   }
 
   // Auth Endpoints
@@ -299,6 +363,22 @@ class ApiClient {
         method: 'DELETE',
       });
     },
+    getAttendees: async (params?: { query?: string; category?: string; checkedInOnly?: boolean; page?: number; size?: number }): Promise<{ items: any[]; total: number }> => {
+      const sp = new URLSearchParams();
+      if (params?.query) sp.append('query', params.query);
+      if (params?.category) sp.append('category', params.category);
+      if (params?.checkedInOnly !== undefined) sp.append('checkedInOnly', params.checkedInOnly.toString());
+      if (params?.page !== undefined) sp.append('page', params.page.toString());
+      if (params?.size !== undefined) sp.append('size', params.size.toString());
+      const queryStr = sp.toString() ? `?${sp.toString()}` : '';
+      const res = await this.requestWithResponse<any[]>(`/api/v1/organizer/attendees${queryStr}`);
+      const totalHeader = res.headers.get('X-Total-Count');
+      const total = totalHeader ? parseInt(totalHeader, 10) : res.data.length;
+      return { items: res.data, total };
+    },
+    getExhibitors: async (): Promise<OrganizerExhibitor[]> => {
+      return this.request<OrganizerExhibitor[]>('/api/v1/organizer/exhibitors');
+    },
   };
 
   // Phase 7: Sessions, Q&A & Live Polls
@@ -327,14 +407,14 @@ class ApiClient {
         body: JSON.stringify({ text, isAnonymous }),
       });
     },
-    upvoteQuestion: async (questionId: string): Promise<any> => {
-      return this.request<any>(`/api/v1/sessions/questions/${encodeURIComponent(questionId)}/upvote`, {
+    upvoteQuestion: async (questionId: string): Promise<{ questionId: string; upvotes: number; hasUpvoted: boolean; message: string }> => {
+      return this.request<{ questionId: string; upvotes: number; hasUpvoted: boolean; message: string }>(`/api/v1/sessions/questions/${encodeURIComponent(questionId)}/upvote`, {
         method: 'POST',
       });
     },
-    removeQuestionUpvote: async (questionId: string): Promise<any> => {
-      return this.request<any>(`/api/v1/sessions/questions/${encodeURIComponent(questionId)}/upvote`, {
-        method: 'DELETE',
+    removeQuestionUpvote: async (questionId: string): Promise<{ questionId: string; upvotes: number; hasUpvoted: boolean; message: string }> => {
+      return this.request<{ questionId: string; upvotes: number; hasUpvoted: boolean; message: string }>(`/api/v1/sessions/questions/${encodeURIComponent(questionId)}/upvote`, {
+        method: 'POST',
       });
     },
     getPolls: async (sessionId: string): Promise<any[]> => {
@@ -358,24 +438,29 @@ class ApiClient {
 
   // Phase 6: Attendees & Networking
   public attendees = {
-    getAll: async (search?: string, role?: string): Promise<any[]> => {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (role) params.append('role', role);
-      const query = params.toString() ? `?${params.toString()}` : '';
-      return this.request<any[]>(`/api/v1/attendees${query}`);
+    getAll: async (params?: { query?: string; category?: string; page?: number; size?: number; savedOnly?: boolean } | string, role?: string): Promise<any[]> => {
+      let queryStr = '';
+      if (typeof params === 'string') {
+        const sp = new URLSearchParams();
+        if (params) sp.append('query', params);
+        if (role) sp.append('category', role);
+        queryStr = `?${sp.toString()}`;
+      } else if (params) {
+        const sp = new URLSearchParams();
+        if (params.query) sp.append('query', params.query);
+        if (params.category) sp.append('category', params.category);
+        if (params.page !== undefined) sp.append('page', params.page.toString());
+        if (params.size !== undefined) sp.append('size', params.size.toString());
+        if (params.savedOnly) sp.append('savedOnly', 'true');
+        queryStr = `?${sp.toString()}`;
+      }
+      return this.request<any[]>(`/api/v1/attendees${queryStr}`);
     },
     getMyProfile: async (): Promise<any> => {
       return this.request<any>('/api/v1/attendees/me');
     },
     updateMyProfile: async (data: Record<string, any>): Promise<any> => {
       return this.request<any>('/api/v1/attendees/me', {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    },
-    updateAttendee: async (attendeeId: string, data: Record<string, any>): Promise<any> => {
-      return this.request<any>(`/api/v1/attendees/${encodeURIComponent(attendeeId)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -387,21 +472,21 @@ class ApiClient {
       });
     },
     getConnections: async (): Promise<any[]> => {
-      return this.request<any[]>('/api/v1/attendees/connections');
+      return this.request<any[]>('/api/v1/connections');
     },
     requestConnection: async (targetAttendeeId: string, note?: string): Promise<any> => {
-      return this.request<any>('/api/v1/attendees/connections', {
+      return this.request<any>('/api/v1/connections', {
         method: 'POST',
         body: JSON.stringify({ targetAttendeeId, note }),
       });
     },
     acceptConnection: async (connectionId: string): Promise<any> => {
-      return this.request<any>(`/api/v1/attendees/connections/${encodeURIComponent(connectionId)}/accept`, {
+      return this.request<any>(`/api/v1/connections/${encodeURIComponent(connectionId)}/accept`, {
         method: 'POST',
       });
     },
     disconnect: async (connectionId: string): Promise<void> => {
-      return this.request<void>(`/api/v1/attendees/connections/${encodeURIComponent(connectionId)}`, {
+      return this.request<void>(`/api/v1/connections/${encodeURIComponent(connectionId)}`, {
         method: 'DELETE',
       });
     },
@@ -476,6 +561,24 @@ class ApiClient {
     deleteProduct: async (productId: string): Promise<void> => {
       return this.request<void>(`/api/v1/exhibitor/products/${encodeURIComponent(productId)}`, {
         method: 'DELETE',
+      });
+    },
+  };
+
+  // Phase 5/9: Public Exhibitors Directory (Authenticated, Any Role)
+  public exhibitors = {
+    getAll: async (): Promise<any[]> => {
+      return this.request<any[]>('/api/v1/exhibitors');
+    },
+    getById: async (id: string): Promise<any> => {
+      return this.request<any>(`/api/v1/exhibitors/${encodeURIComponent(id)}`);
+    },
+    getProducts: async (id: string): Promise<any[]> => {
+      return this.request<any[]>(`/api/v1/exhibitors/${encodeURIComponent(id)}/products`);
+    },
+    enquireProduct: async (id: string): Promise<any> => {
+      return this.request<any>(`/api/v1/exhibitors/products/${encodeURIComponent(id)}/enquiry`, {
+        method: 'POST',
       });
     },
   };

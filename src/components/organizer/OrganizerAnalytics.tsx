@@ -241,9 +241,11 @@ export const OrganizerAnalytics: React.FC = () => {
             <div className="p-3.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
               <span className="text-[11px] text-[#64748B] block">Q&A Questions</span>
               <strong className="text-sm font-semibold font-mono text-[#172033] block mt-0.5">
-                {142 + questions.length}
+                {questions.length}
               </strong>
-              <span className="text-[11px] text-[#16A34A] font-medium block mt-0.5">98 Answered</span>
+              <span className="text-[11px] text-[#16A34A] font-medium block mt-0.5">
+                {questions.filter((q) => q.status === 'Answered').length} Answered
+              </span>
             </div>
 
             <div className="p-3.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
@@ -257,7 +259,7 @@ export const OrganizerAnalytics: React.FC = () => {
             <div className="p-3.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
               <span className="text-[11px] text-[#64748B] block">Product Interest</span>
               <strong className="text-sm font-semibold font-mono text-[#3563F6] block mt-0.5">
-                48
+                {exhibitors.reduce((acc, curr) => acc + (curr.enquiries || 0), 0)}
               </strong>
               <span className="text-[11px] text-[#16A34A] font-medium block mt-0.5">High intent</span>
             </div>

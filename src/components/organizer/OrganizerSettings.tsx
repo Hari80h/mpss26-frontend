@@ -5,15 +5,7 @@ import { useStore } from '../../lib/store';
 import { ShieldCheck, Database, RefreshCw, Key, Globe, Radio } from 'lucide-react';
 
 export const OrganizerSettings: React.FC = () => {
-  const { event, resetAllData, showToast } = useStore();
-
-  const handleTestWebhook = () => {
-    showToast('External Registration Webhook test: 200 OK ✓', 'success');
-  };
-
-  const handleBroadcastAlert = () => {
-    showToast('Emergency announcement broadcasted to 1,120 active badges ✓', 'info');
-  };
+  const { event, resetAllData } = useStore();
 
   return (
     <div className="space-y-6 select-text max-w-4xl mx-auto">
@@ -86,34 +78,33 @@ export const OrganizerSettings: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-[#16A34A] flex-shrink-0" />
             <span className="font-mono text-[#172033] truncate">https://api.eventsphere.io/v2/webhook/MPSS26</span>
           </div>
-          <button
-            onClick={handleTestWebhook}
-            className="h-8 px-3 bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg font-medium text-xs text-[#172033] shadow-2xs cursor-pointer flex-shrink-0"
-          >
-            Test Webhook
-          </button>
+          <span className="text-[11px] text-[#16A34A] font-medium bg-[#DCFCE7] px-2.5 py-1 rounded-md">
+            Active · Ready
+          </span>
         </div>
       </div>
 
       {/* Demo State Control */}
-      <div className="bg-white p-6 rounded-xl border border-[#E2E8F0] shadow-2xs space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-[#172033]">Demo Reset & Diagnostic Controls</h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Restore initial mock attendees, leads, and questions for subsequent sales demonstrations.
-          </p>
-        </div>
+      {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
+        <div className="bg-white p-6 rounded-xl border border-[#E2E8F0] shadow-2xs space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-[#172033]">Demo Reset & Diagnostic Controls</h2>
+            <p className="text-xs text-[#64748B] mt-0.5">
+              Restore initial mock attendees, leads, and questions for subsequent sales demonstrations.
+            </p>
+          </div>
 
-        <div>
-          <button
-            onClick={resetAllData}
-            className="h-9 px-4 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-medium text-xs rounded-lg transition-colors flex items-center gap-2 cursor-pointer shadow-2xs"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>Reset Demo Data to Initial State</span>
-          </button>
+          <div>
+            <button
+              onClick={resetAllData}
+              className="h-9 px-4 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-medium text-xs rounded-lg transition-colors flex items-center gap-2 cursor-pointer shadow-2xs"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Reset Demo Data to Initial State</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

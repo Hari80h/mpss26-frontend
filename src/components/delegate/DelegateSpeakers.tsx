@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { useStore } from '../../lib/store';
+import { Person } from '../../types';
 
 export const DelegateSpeakers: React.FC = () => {
   const router = useRouter();
@@ -41,9 +42,47 @@ export const DelegateSpeakers: React.FC = () => {
   const isConnected = (personId: string) => connections.some((c) => c.personId === personId && c.status === 'connected');
   const isPending = (personId: string) => connections.some((c) => c.personId === personId && c.status === 'pending');
 
+  const [serverSpeakers, setServerSpeakers] = useState<Person[] | null>(null);
+
+  React.useEffect(() => {
+    if (!searchQuery.trim()) {
+      setServerSpeakers(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      import('../../lib/api').then(({ api }) => {
+        api.attendees.getAll({ query: searchQuery.trim(), category: 'speaker' })
+          .then((res) => {
+            if (Array.isArray(res)) {
+              setServerSpeakers(res.map((a: any) => ({
+                id: a.id,
+                name: a.name,
+                designation: a.designation || '',
+                company: a.company || '',
+                role: 'speaker',
+                avatar: a.avatar || a.avatarUrl || '',
+                bio: a.bio || '',
+                email: a.email || 'Not publicly listed',
+                mobile: a.mobile || '',
+                linkedin: a.linkedin || '',
+                interests: a.interests || [],
+                skills: a.skills || [],
+                privacy: a.privacy || { preset: 'Open', shareEmail: false, sharePhone: false, shareLinkedIn: true, shareTwitter: true },
+                checkedIn: Boolean(a.checkedIn),
+                registrationId: a.registrationId || `#${a.id.slice(-4)}`,
+                ticketType: a.ticketType || 'Speaker Pass',
+              })));
+            }
+          })
+          .catch(() => setServerSpeakers(null));
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const speakers = attendees.filter(p => p.role === 'speaker' && p.id !== currentUser.id);
   
-  const filteredSpeakers = speakers.filter(speaker => 
+  const filteredSpeakers = serverSpeakers || speakers.filter(speaker => 
     searchQuery === '' || 
     speaker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     speaker.company.toLowerCase().includes(searchQuery.toLowerCase()) ||

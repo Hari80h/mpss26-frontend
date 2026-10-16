@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 export const ExhibitorMore: React.FC = React.memo(() => {
-  const { showToast, setHasAccessConfirmed } = useStore();
+  const { showToast, logout, currentUser } = useStore();
 
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<'event' | 'company'>('event');
@@ -33,8 +33,7 @@ export const ExhibitorMore: React.FC = React.memo(() => {
   };
 
   const handleLogout = () => {
-    setHasAccessConfirmed(false);
-    showToast('Logged out successfully', 'info');
+    logout();
   };
 
   const handleCallSupport = () => {
@@ -42,18 +41,25 @@ export const ExhibitorMore: React.FC = React.memo(() => {
     window.location.href = 'tel:+918023456789';
   };
 
+  const companyName = currentUser?.company || 'Truechip Solutions';
+  const boothInfo = currentUser?.boothNumber || 'Hall 1 · Booth A-02';
+  const avatarUrl = currentUser?.avatar || '/images/exhibitors/truechip.png';
+
   return (
     <div className="flex-1 bg-[#F6F4F0] select-none px-4 pt-4 pb-24 space-y-5">
       {/* Header Profile Card */}
       <div className="bg-white p-5 rounded-3xl border border-[#DEDCD7] shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center p-1.5 border border-gray-200 shadow-sm overflow-hidden">
-            <img src="/images/exhibitors/truechip.png" alt="Truechip" className="w-full h-full object-contain" />
+            <img src={avatarUrl} alt={companyName} className="w-full h-full object-contain" onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(companyName)}&background=F3F4F6&color=181818&bold=true`;
+            }} />
           </div>
           <div>
-            <h2 className="text-xl font-serif text-[#181818]">Truechip Solutions</h2>
+            <h2 className="text-xl font-serif text-[#181818]">{companyName}</h2>
             <p className="text-xs text-[#6B6B6B] mt-0.5">
-              Hall 1 · Booth A-02 · Verification IP & EDA
+              {boothInfo} {currentUser?.designation ? `· ${currentUser.designation}` : '· Exhibitor Staff'}
             </p>
           </div>
         </div>

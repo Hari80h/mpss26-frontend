@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, MapPin, Star, Download } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { api } from '@/lib/api';
 
 export const DelegateCompanyDetail: React.FC = () => {
   const router = useRouter();
@@ -17,6 +18,7 @@ export const DelegateCompanyDetail: React.FC = () => {
     showToast 
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [liveProducts, setLiveProducts] = useState<any[]>([]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -25,7 +27,32 @@ export const DelegateCompanyDetail: React.FC = () => {
   }, [selectedCompanyId]);
 
   const company = exhibitors.find(e => e.id === selectedCompanyId) || exhibitors[0];
-  const companyProducts = products.filter(p => p.company === company.company);
+
+  useEffect(() => {
+    if (company?.id) {
+      api.exhibitors.getProducts(company.id)
+        .then((data) => {
+          if (data && Array.isArray(data) && data.length > 0) {
+            setLiveProducts(data);
+          }
+        })
+        .catch((err) => {
+          console.warn('Failed to load exhibitor products from backend:', err);
+        });
+    }
+  }, [company?.id]);
+
+  const companyProducts = liveProducts.length > 0
+    ? liveProducts.map((p) => ({
+        id: p.id,
+        name: p.name,
+        tagline: p.tagline,
+        category: p.category,
+        overview: p.overview,
+        image: p.imageUrl || p.image || '',
+        company: company.company,
+      }))
+    : products.filter(p => p.company === company.company);
 
   if (!company) return null;
 

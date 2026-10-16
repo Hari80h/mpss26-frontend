@@ -34,6 +34,7 @@ export const ExhibitorProducts: React.FC = React.memo(() => {
     addProduct,
     interestedVisitors,
     showToast,
+    currentUser,
   } = useStore();
 
   const [detailSubTab, setDetailSubTab] = useState<'overview' | 'features' | 'benefits' | 'useCases' | 'resources'>('overview');
@@ -88,12 +89,12 @@ export const ExhibitorProducts: React.FC = React.memo(() => {
   // Delete confirm state
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
-  // Active exhibitor company is Truechip Solutions (Booth A-02)
-  const exhibitorCompany = 'Truechip Solutions';
-  const companyProducts = useMemo(
-    () => products.filter((p) => p.company.toLowerCase().includes('truechip')),
-    [products]
-  );
+  // Active exhibitor company
+  const exhibitorCompany = currentUser?.company || 'Truechip Solutions';
+  const companyProducts = useMemo(() => {
+    const list = products.filter((p) => !currentUser?.company || p.company.toLowerCase().includes(currentUser.company.toLowerCase()));
+    return list.length > 0 ? list : products;
+  }, [products, currentUser?.company]);
 
   const activeProduct = useMemo(
     () => companyProducts.find((p) => p.id === selectedProductId),

@@ -2,7 +2,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../lib/store';
-import { CURRENT_USER, INITIAL_ATTENDEES } from '../../lib/mockData';
 import { api } from '../../lib/api';
 import { ShieldCheck, CheckCircle2, AlertCircle, ArrowRight, Loader2, Lock } from 'lucide-react';
 
@@ -11,7 +10,7 @@ interface AccessScreenProps {
 }
 
 export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
-  const { setRole, setHasAccessConfirmed, setCurrentUser } = useStore();
+  const { setRole, setHasAccessConfirmed, setCurrentUser, resetUserState } = useStore();
   
   const [eventId, setEventId] = useState('MPSS26');
   const [mobile, setMobile] = useState('');
@@ -63,6 +62,9 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
       // 1. Authenticate against the live Spring Boot backend
       const res = await api.auth.login(eventId || 'MPSS26', num);
       if (res && res.token && res.user) {
+        // Reset previous user's in-memory data before hydrating new user
+        resetUserState();
+
         let detectedRole: 'delegate' | 'exhibitor' | 'organizer' = 'delegate';
         if (res.user.role === 'ROLE_ORGANIZER') detectedRole = 'organizer';
         else if (res.user.role === 'ROLE_EXHIBITOR') detectedRole = 'exhibitor';
@@ -70,23 +72,91 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
 
         setRole(detectedRole);
 
-        const matched = INITIAL_ATTENDEES.find((a) => a.id === res.user.id || (a.mobile && a.mobile.replace(/\D/g, '').endsWith(num)));
-        if (matched) {
+        // 2. Build currentUser from GET /api/v1/attendees/me (and UserSummaryDto from /auth/access), NOT mock data
+        try {
+          const profile = await api.attendees.getMyProfile();
+          if (profile && profile.id) {
+            setCurrentUser({
+              id: profile.id,
+              name: profile.name || res.user.name,
+              avatar: profile.avatar || '',
+              designation: profile.designation || '',
+              company: profile.company || res.user.company || '',
+              role: (profile.role as any) || (detectedRole === 'organizer' ? 'organizer_staff' : detectedRole === 'exhibitor' ? 'exhibitor_staff' : 'delegate'),
+              bio: profile.bio || '',
+              interests: profile.interests || [],
+              skills: profile.skills || [],
+              email: profile.email || res.user.email || '',
+              mobile: profile.mobile || res.user.mobile || num,
+              linkedin: profile.linkedin || '',
+              twitter: profile.twitter || '',
+              relevanceScore: profile.relevanceScore,
+              checkedIn: profile.checkedIn ?? false,
+              registrationId: profile.registrationId || res.user.id || '',
+              ticketType: profile.ticketType || 'Standard',
+              privacy: profile.privacy ? {
+                shareEmail: profile.privacy.shareEmail ?? true,
+                sharePhone: profile.privacy.sharePhone ?? true,
+                shareLinkedIn: profile.privacy.shareLinkedIn ?? true,
+                shareTwitter: profile.privacy.shareTwitter ?? false,
+                preset: profile.privacy.preset === 'OPEN' ? 'Open' : 'Connections Only',
+              } : {
+                shareEmail: true,
+                sharePhone: true,
+                shareLinkedIn: true,
+                shareTwitter: false,
+                preset: 'Connections Only',
+              },
+            });
+          } else {
+            setCurrentUser({
+              id: res.user.id,
+              name: res.user.name,
+              avatar: '',
+              designation: detectedRole === 'organizer' ? 'Organizer' : detectedRole === 'exhibitor' ? 'Exhibitor' : 'Delegate',
+              company: res.user.company || 'EventSphere',
+              role: detectedRole === 'organizer' ? 'organizer_staff' : detectedRole === 'exhibitor' ? 'exhibitor_staff' : 'delegate',
+              bio: '',
+              interests: [],
+              skills: [],
+              email: res.user.email || '',
+              mobile: res.user.mobile || num,
+              checkedIn: true,
+              registrationId: res.user.id,
+              ticketType: detectedRole === 'organizer' ? 'Organizer' : detectedRole === 'exhibitor' ? 'Exhibitor Pass' : 'Standard',
+              privacy: {
+                shareEmail: true,
+                sharePhone: true,
+                shareLinkedIn: true,
+                shareTwitter: false,
+                preset: 'Connections Only',
+              },
+            });
+          }
+        } catch {
+          // Fallback to res.user from login
           setCurrentUser({
-            ...matched,
             id: res.user.id,
             name: res.user.name,
-            email: res.user.email,
-            mobile: res.user.mobile,
-          });
-        } else {
-          setCurrentUser({
-            ...CURRENT_USER,
-            id: res.user.id,
-            name: res.user.name,
-            email: res.user.email,
-            mobile: res.user.mobile,
+            avatar: '',
+            designation: detectedRole === 'organizer' ? 'Organizer' : detectedRole === 'exhibitor' ? 'Exhibitor' : 'Delegate',
+            company: res.user.company || 'EventSphere',
             role: detectedRole === 'organizer' ? 'organizer_staff' : detectedRole === 'exhibitor' ? 'exhibitor_staff' : 'delegate',
+            bio: '',
+            interests: [],
+            skills: [],
+            email: res.user.email || '',
+            mobile: res.user.mobile || num,
+            checkedIn: true,
+            registrationId: res.user.id,
+            ticketType: detectedRole === 'organizer' ? 'Organizer' : detectedRole === 'exhibitor' ? 'Exhibitor Pass' : 'Standard',
+            privacy: {
+              shareEmail: true,
+              sharePhone: true,
+              shareLinkedIn: true,
+              shareTwitter: false,
+              preset: 'Connections Only',
+            },
           });
         }
 
@@ -98,49 +168,10 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
         return;
       }
     } catch (err: any) {
-      // If backend explicitly rejected with registration error or rate limit
-      if (err.message && (err.message.includes('No registration found') || err.message.includes('not registered') || err.message.includes('Rate limit') || err.message.includes('400'))) {
-        setStatus('error');
-        setErrorMessage(err.message);
-        return;
-      }
-      console.warn('Backend unavailable, using fallback:', err);
+      setStatus('error');
+      setErrorMessage(err.message || 'Login failed. Please verify your registered mobile number.');
+      return;
     }
-
-    // Offline / Mock fallback
-    let detectedRole: 'delegate' | 'exhibitor' | 'organizer' = 'delegate';
-
-    if (num === '9876543211' || num.endsWith('43211') || num.endsWith('3211')) {
-      detectedRole = 'exhibitor';
-    } else if (num === '9876543212' || num === '90876543212' || num.endsWith('43212') || num.endsWith('3212')) {
-      detectedRole = 'organizer';
-    } else {
-      detectedRole = 'delegate';
-    }
-
-    if (detectedRole === 'delegate') {
-      const matched = INITIAL_ATTENDEES.find((a) => {
-        const aNum = (a.mobile || '').replace(/\D/g, '');
-        return aNum.endsWith(num) || (num.length >= 8 && aNum.includes(num));
-      });
-      setCurrentUser(matched || CURRENT_USER);
-    }
-
-    setTimeout(() => {
-      try {
-        setRole(detectedRole);
-        setStatus('confirmed');
-        setTimeout(() => {
-          setHasAccessConfirmed(true);
-          onSuccess();
-        }, 350);
-      } catch (err) {
-        console.error('Login error:', err);
-        setHasAccessConfirmed(true);
-        setStatus('confirmed');
-        onSuccess();
-      }
-    }, 400);
   };
 
   return (
@@ -233,44 +264,46 @@ export const AccessScreen: React.FC<AccessScreenProps> = ({ onSuccess }) => {
             </div>
 
             {/* Quick Demo Selector Chips */}
-            <div className="pt-0.5">
-              <p className="text-[10.5px] text-[#888888] font-medium mb-1.5">Quick Demo Logins:</p>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleQuickSelect('9876543210')}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
-                    mobile === '9876543210'
-                      ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
-                      : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
-                  }`}
-                >
-                  Delegate - Hari Gupta (9876543210)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickSelect('9876543211')}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
-                    mobile === '9876543211'
-                      ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
-                      : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
-                  }`}
-                >
-                  Exhibitor (9876543211)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickSelect('9876543212')}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
-                    mobile === '9876543212'
-                      ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
-                      : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
-                  }`}
-                >
-                  Organizer (9876543212)
-                </button>
+            {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
+              <div className="pt-0.5">
+                <p className="text-[10.5px] text-[#888888] font-medium mb-1.5">Quick Demo Logins:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSelect('9876543210')}
+                    className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
+                      mobile === '9876543210'
+                        ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
+                        : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
+                    }`}
+                  >
+                    Delegate - Hari Gupta (9876543210)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSelect('9876543211')}
+                    className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
+                      mobile === '9876543211'
+                        ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
+                        : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
+                    }`}
+                  >
+                    Exhibitor (9876543211)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSelect('9876543212')}
+                    className={`text-[11px] px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
+                      mobile === '9876543212'
+                        ? 'bg-[#B51F32] text-white border-[#B51F32] font-semibold shadow-sm'
+                        : 'bg-white text-[#333333] border-[#DEDCD7] hover:border-[#B51F32] font-medium'
+                    }`}
+                  >
+                    Organizer (9876543212)
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Error Message */}

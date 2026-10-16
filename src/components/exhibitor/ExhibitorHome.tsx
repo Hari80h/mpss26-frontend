@@ -6,25 +6,33 @@ import { UserPlus, Package, ChevronRight, Users } from 'lucide-react';
 
 export const ExhibitorHome: React.FC = React.memo(() => {
   const {
+    currentUser,
     leads,
     products,
     exhibitors,
     setActiveExhibitorTab,
   } = useStore();
 
-  const truechipProducts = useMemo(
-    () => products.filter((p) => p.company.toLowerCase().includes('truechip')),
-    [products]
+  const exhibitorCompany = currentUser?.company || 'Truechip Solutions';
+  const exhibitorBooth = currentUser?.boothNumber || 'Hall 1 · Booth A-02';
+  const exhibitorLogo = currentUser?.avatar || '/images/exhibitors/truechip.png';
+
+  const companyProducts = useMemo(
+    () => products.filter((p) => !currentUser?.company || p.company.toLowerCase().includes(currentUser.company.toLowerCase())),
+    [products, currentUser?.company]
   );
 
-  const truechip = useMemo(
-    () => exhibitors.find((e) => e.company.toLowerCase().includes('truechip')) || {
+  const currentExhibitor = useMemo(
+    () => exhibitors.find((e) =>
+      (currentUser?.company && e.company.toLowerCase() === currentUser.company.toLowerCase()) ||
+      (currentUser?.boothNumber && e.booth === currentUser.boothNumber)
+    ) || {
       visits: 760,
-      leads: leads.length || 290,
+      leads: leads.length,
       enquiries: 140,
       teamSize: 14,
     },
-    [exhibitors, leads.length]
+    [exhibitors, currentUser?.company, currentUser?.boothNumber, leads.length]
   );
 
   const greeting = useMemo(() => {
@@ -53,10 +61,10 @@ export const ExhibitorHome: React.FC = React.memo(() => {
               {greeting}
             </span>
             <h1 className="text-[21px] font-serif font-medium text-[#181818] leading-none mb-1">
-              Truechip Team
+              {exhibitorCompany} Team
             </h1>
             <p className="text-[11.5px] font-semibold text-[#6B6B6B] leading-none">
-              Exhibitor <span className="opacity-50 mx-0.5">·</span> Hall 1 · Booth A-02
+              Exhibitor <span className="opacity-50 mx-0.5">·</span> {exhibitorBooth}
             </p>
           </div>
 
@@ -65,7 +73,10 @@ export const ExhibitorHome: React.FC = React.memo(() => {
             className="relative group focus:outline-none z-10 flex-shrink-0 ml-2"
           >
             <div className="w-[52px] h-[52px] rounded-full bg-white flex items-center justify-center p-2 border-[3px] border-white shadow-sm overflow-hidden">
-              <img src="/images/exhibitors/truechip.png" alt="Truechip" className="w-full h-full object-contain" />
+              <img src={exhibitorLogo} alt={exhibitorCompany} className="w-full h-full object-contain" onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(exhibitorCompany)}&background=F3F4F6&color=181818&bold=true`;
+              }} />
             </div>
             <span className="absolute bottom-0 -right-0.5 w-[20px] h-[20px] bg-[#10B981] border-[2.5px] border-white rounded-full" />
           </button>
@@ -79,8 +90,8 @@ export const ExhibitorHome: React.FC = React.memo(() => {
 
         {/* Title */}
         <div className="mb-6 relative z-10">
-          <h1 className="text-3xl font-serif mb-1 tracking-tight text-white">Truechip</h1>
-          <p className="text-[11px] text-gray-400">MPSS26 · Hall 1 · Booth A-02 · {truechip.teamSize || 14} team members on floor</p>
+          <h1 className="text-3xl font-serif mb-1 tracking-tight text-white">{exhibitorCompany}</h1>
+          <p className="text-[11px] text-gray-400">MPSS26 · {exhibitorBooth} · {currentExhibitor.teamSize || 14} team members on floor</p>
         </div>
 
         {/* 2 Core Metrics Grid */}
@@ -95,7 +106,7 @@ export const ExhibitorHome: React.FC = React.memo(() => {
             </div>
             <div className="flex flex-col">
               <span className="text-2xl font-light text-white leading-none mb-1">
-                {truechip.leads || leads.length || 290}
+                {leads.length || currentExhibitor.leads || 0}
               </span>
               <span className="text-[11px] text-gray-400 font-medium">Total Leads</span>
             </div>
@@ -111,7 +122,7 @@ export const ExhibitorHome: React.FC = React.memo(() => {
             </div>
             <div className="flex flex-col">
               <span className="text-2xl font-light text-white leading-none mb-1">
-                {truechipProducts.length || 7}
+                {companyProducts.length}
               </span>
               <span className="text-[11px] text-gray-400 font-medium">Total Products</span>
             </div>
@@ -144,7 +155,7 @@ export const ExhibitorHome: React.FC = React.memo(() => {
         </div>
 
         <div className="space-y-3">
-          {truechipProducts.slice(0, 2).map((product) => (
+          {companyProducts.slice(0, 2).map((product) => (
             <div 
               key={product.id} 
               className="bg-white p-4 rounded-[16px] border border-[#DEDCD7] flex justify-between items-center cursor-pointer active:scale-[0.99] transition-transform" 

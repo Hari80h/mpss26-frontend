@@ -8,7 +8,8 @@ export default function Error({
 }: {
   error: Error & { digest?: string };
   reset: () => void;
-}) {
+})
+ {
   return (
     <div className="min-h-screen bg-[#F6F4F0] flex flex-col items-center justify-center p-6 text-center">
       <div className="w-16 h-16 bg-[#FFF0F2] text-[#B51F32] rounded-2xl flex items-center justify-center text-2xl font-bold mb-4 shadow-sm border border-[#FAD2D7]">

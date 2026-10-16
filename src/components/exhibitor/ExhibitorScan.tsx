@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../lib/store';
+import { api } from '../../lib/api';
 import {
   Search,
   ChevronRight,
@@ -21,10 +22,21 @@ export const ExhibitorScan: React.FC = React.memo(() => {
   } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [candidateResults, setCandidateResults] = useState<Person[]>([]);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('All');
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus>('Interested');
   const [notes, setNotes] = useState('');
+
+  // Debounce search query by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Fast O(1) lead lookup map
   const leadMap = useMemo(() => {
@@ -35,17 +47,63 @@ export const ExhibitorScan: React.FC = React.memo(() => {
     return map;
   }, [leads]);
 
-  // Combine attendees (delegates, speakers, VIPs, guests)
+  // Query backend searchCandidates on debouncedQuery
+  useEffect(() => {
+    let isCancelled = false;
+    setIsLoadingCandidates(true);
+    api.exhibitor.searchCandidates(debouncedQuery)
+      .then((candidates) => {
+        if (!isCancelled && candidates && Array.isArray(candidates)) {
+          const mapped: Person[] = candidates.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            avatar: c.avatar,
+            designation: c.designation || '',
+            company: c.company || '',
+            role: (c.role?.toLowerCase() as any) || 'delegate',
+            bio: '',
+            interests: c.interests || [],
+            skills: [],
+            email: c.email || '',
+            mobile: c.mobile || '',
+            linkedin: c.linkedin || '',
+            privacy: {
+              preset: 'Connections Only',
+              shareEmail: true,
+              sharePhone: true,
+              shareLinkedIn: true,
+            },
+            checkedIn: true,
+            registrationId: `#${c.id.slice(-4)}`,
+            ticketType: c.role || 'Delegate',
+          }));
+          setCandidateResults(mapped);
+        }
+      })
+      .catch((err) => {
+        console.warn('api.exhibitor.searchCandidates error:', err);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoadingCandidates(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [debouncedQuery]);
+
+  // Combine fallback attendees (delegates, speakers, VIPs, guests)
   const allCandidates: Person[] = useMemo(() => [
     ...(currentUser ? [currentUser] : []),
     ...attendees.filter((a) => a.id !== currentUser?.id && a.role !== 'exhibitor_staff'),
   ], [currentUser, attendees]);
 
-  // Filter candidates based on search query and role filter
+  // Filter candidates based on search results/query and role filter
   const filteredCandidates = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return allCandidates.filter((p) => {
-      if (q) {
+    const base = (candidateResults.length > 0 || debouncedQuery.trim() !== '') ? candidateResults : allCandidates;
+    const q = debouncedQuery.trim().toLowerCase();
+    return base.filter((p) => {
+      if (q && candidateResults.length === 0) {
         const matches =
           p.name.toLowerCase().includes(q) ||
           p.company.toLowerCase().includes(q) ||
@@ -58,7 +116,7 @@ export const ExhibitorScan: React.FC = React.memo(() => {
       if (selectedRoleFilter === 'VIP & Speakers') return p.role === 'vip' || p.role === 'speaker';
       return true;
     });
-  }, [allCandidates, searchQuery, selectedRoleFilter]);
+  }, [candidateResults, allCandidates, debouncedQuery, selectedRoleFilter]);
 
   const handleSelectPerson = (person: Person) => {
     setSelectedPerson(person);
@@ -80,6 +138,8 @@ export const ExhibitorScan: React.FC = React.memo(() => {
     const linkedinToUse = selectedPerson.privacy?.shareLinkedIn !== false ? (selectedPerson.linkedin || '') : '';
 
     const existingLead = leadMap.get(selectedPerson.id);
+    const boothLabel = currentUser?.boothNumber || 'Hall 1 · Booth A-02';
+    const companyLabel = currentUser?.company || 'Exhibitor Booth';
 
     saveLead({
       personId: selectedPerson.id,
@@ -90,11 +150,11 @@ export const ExhibitorScan: React.FC = React.memo(() => {
       email: emailToUse,
       mobile: mobileToUse,
       linkedin: linkedinToUse,
-      source: 'Booth Lead Capture (Hall 1 · A-02)',
+      source: `Booth Lead Capture (${companyLabel} · ${boothLabel})`,
       status: selectedStatus,
-      interests: existingLead?.interests || ['PCIe Gen 6 / 7 VIP', 'UCIe Chiplet VIP'],
+      interests: existingLead?.interests || selectedPerson.interests || ['Semiconductors', 'EDA'],
       notes: notes.trim(),
-      boothId: 'Hall 1 · A-02',
+      boothId: boothLabel,
       productsViewed: existingLead?.productsViewed || [],
     });
 
@@ -116,7 +176,7 @@ export const ExhibitorScan: React.FC = React.memo(() => {
               {selectedPerson ? 'Save Lead' : 'Select Attendee'}
             </h1>
             <p className="text-xs text-gray-400">
-              {selectedPerson ? 'Hall 1 · Booth A-02' : 'Choose an attendee to add to Truechip leads'}
+              {selectedPerson ? (currentUser?.boothNumber || 'Hall 1 · Booth A-02') : `Choose an attendee to add to ${currentUser?.company || 'exhibitor'} leads`}
             </p>
           </div>
 

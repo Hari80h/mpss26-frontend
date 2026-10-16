@@ -25,7 +25,7 @@ export const OrganizerConsole: React.FC = () => {
     activeOrganizerTab,
     setActiveOrganizerTab,
     event,
-    setHasAccessConfirmed,
+    logout,
   } = useStore();
 
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -140,7 +140,7 @@ export const OrganizerConsole: React.FC = () => {
         {/* Anchored Logout Section */}
         <div className="p-4 border-t border-[#1E2E4A] mt-auto">
           <button
-            onClick={() => setHasAccessConfirmed(false)}
+            onClick={() => logout()}
             className="w-full h-9 px-3 text-[#94A3B8] hover:text-white hover:bg-[#1E293B] rounded-lg text-[13px] font-medium transition-colors flex items-center gap-2.5 cursor-pointer"
           >
             <LogOut className="w-4 h-4 text-[#64748B]" />

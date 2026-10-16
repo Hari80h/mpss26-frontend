@@ -6,7 +6,7 @@ import { Search, Download, Filter, User, Building, Mail, Phone, Calendar, Chevro
 import { Lead, LeadStatus } from '../../types';
 
 export const ExhibitorLeads: React.FC = React.memo(() => {
-  const { leads, updateLeadStatus, showToast, setActiveExhibitorTab } = useStore();
+  const { leads, updateLeadStatus, showToast, setActiveExhibitorTab, currentUser } = useStore();
   const [selectedStatusTab, setSelectedStatusTab] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -66,7 +66,8 @@ export const ExhibitorLeads: React.FC = React.memo(() => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `truechip-booth-leads-mpss26.csv`);
+    const companySlug = (currentUser?.company || 'exhibitor').toLowerCase().replace(/[^a-z0-9]/g, '-');
+    link.setAttribute('download', `${companySlug}-booth-leads-mpss26.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -106,7 +107,7 @@ export const ExhibitorLeads: React.FC = React.memo(() => {
               Booth Leads
             </h1>
             <p className="text-[12px] text-gray-300 font-medium">
-              {leads.length} captured leads at Truechip (Booth A-02)
+              {leads.length} captured leads at {currentUser?.company || 'Truechip'} ({currentUser?.boothNumber || 'Booth A-02'})
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

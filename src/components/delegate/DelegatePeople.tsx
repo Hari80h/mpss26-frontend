@@ -37,7 +37,47 @@ export const DelegatePeople: React.FC = () => {
     ).filter(Boolean) as Person[];
   }, [attendees, viewSavedPeopleOnly, savedPeopleIds]);
 
+  const [serverResults, setServerResults] = useState<Person[] | null>(null);
+
+  React.useEffect(() => {
+    if (!searchQuery.trim() || viewSavedPeopleOnly) {
+      setServerResults(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      import('../../lib/api').then(({ api }) => {
+        api.attendees.getAll({ query: searchQuery.trim() })
+          .then((res) => {
+            if (Array.isArray(res)) {
+              setServerResults(res.map((a: any) => ({
+                id: a.id,
+                name: a.name,
+                designation: a.designation || '',
+                company: a.company || '',
+                role: (a.role as any) || 'delegate',
+                avatar: a.avatar || a.avatarUrl || '',
+                bio: a.bio || '',
+                email: a.email || '',
+                mobile: a.mobile || '',
+                linkedin: a.linkedin || '',
+                interests: a.interests || [],
+                skills: a.skills || [],
+                relevanceScore: a.relevanceScore || 0,
+                privacy: a.privacy || { preset: 'Connections Only', shareEmail: true, sharePhone: false, shareLinkedIn: true, shareTwitter: false },
+                checkedIn: Boolean(a.checkedIn),
+                registrationId: a.registrationId || `#${a.id.slice(-4)}`,
+                ticketType: a.ticketType || 'Delegate',
+              })));
+            }
+          })
+          .catch(() => setServerResults(null));
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, viewSavedPeopleOnly]);
+
   const displayedList = useMemo(() => {
+    if (serverResults) return serverResults;
     const q = searchQuery.trim().toLowerCase();
     if (!q) return baseList;
 
@@ -50,7 +90,7 @@ export const DelegatePeople: React.FC = () => {
         (person.skills && person.skills.some((s) => s.toLowerCase().includes(q)))
       );
     });
-  }, [baseList, searchQuery]);
+  }, [baseList, searchQuery, serverResults]);
 
   return (
     <div className="flex-1 min-h-0 h-full bg-[#F8F7F4] select-none flex flex-col overflow-hidden">

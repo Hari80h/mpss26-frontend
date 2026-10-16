@@ -13,25 +13,33 @@ export const DelegatePolls: React.FC = () => {
   
   // Ensure we use the official summit poll data
   const activePoll = poll && poll.id === INITIAL_POLL.id ? poll : (poll || INITIAL_POLL);
-  const storageKey = `eventsphere_poll_voted_${activePoll.id}`;
+  const storageKey = currentUser?.id
+    ? `eventsphere_poll_voted_${activePoll.id}_${currentUser.id}`
+    : `eventsphere_poll_voted_${activePoll.id}`;
 
   const [submittedOption, setSubmittedOption] = useState<string | null>(null);
 
-  // Initialize from localStorage or voter list
+  // Initialize from backend poll DTO or user-scoped localStorage
   useEffect(() => {
+    if (activePoll.votedOptionId) {
+      setSubmittedOption(activePoll.votedOptionId);
+      return;
+    }
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem(storageKey);
         if (saved) {
           setSubmittedOption(saved);
-        } else if (activePoll.voterIds && activePoll.voterIds.includes(currentUser?.id || '')) {
-          setSubmittedOption('opt-2');
+        } else if (activePoll.hasVoted && activePoll.voterIds && currentUser?.id && activePoll.voterIds.includes(currentUser.id)) {
+          setSubmittedOption(activePoll.votedOptionId || null);
+        } else {
+          setSubmittedOption(null);
         }
       } catch {
         // ignore storage errors
       }
     }
-  }, [activePoll.id, activePoll.voterIds, currentUser?.id, storageKey]);
+  }, [activePoll.id, activePoll.hasVoted, activePoll.votedOptionId, activePoll.voterIds, currentUser?.id, storageKey]);
 
   const handleVote = (optionId: string) => {
     if (activePoll.status === 'closed') return;
@@ -51,6 +59,7 @@ export const DelegatePolls: React.FC = () => {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(storageKey);
+        localStorage.removeItem(`eventsphere_poll_voted_${activePoll.id}`);
       } catch {
         // ignore
       }
@@ -60,7 +69,7 @@ export const DelegatePolls: React.FC = () => {
     }
   };
 
-  const hasVoted = submittedOption !== null || (activePoll.voterIds && activePoll.voterIds.includes(currentUser?.id || ''));
+  const hasVoted = submittedOption !== null || Boolean(activePoll.hasVoted) || (Boolean(currentUser?.id) && Boolean(activePoll.voterIds?.includes(currentUser.id)));
   const totalVotes = activePoll.totalVotes || 0;
 
   return (

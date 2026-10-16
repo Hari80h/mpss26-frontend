@@ -143,6 +143,8 @@ export interface Poll {
   status: 'open' | 'closed';
   totalVotes: number;
   voterIds: string[]; // for 1 vote per person verification
+  hasVoted?: boolean;
+  votedOptionId?: string | null;
 }
 
 export interface Session {

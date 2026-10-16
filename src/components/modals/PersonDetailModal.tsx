@@ -19,6 +19,7 @@ export const PersonDetailModal: React.FC = () => {
     toggleSavePerson,
     updateAttendee,
     currentUser,
+    role,
   } = useStore();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -154,7 +155,7 @@ export const PersonDetailModal: React.FC = () => {
             {person.role === 'speaker' || person.ticketType === 'Speaker' ? 'Featured Speaker Profile' : 'Attendee Profile'}
           </span>
           <div className="flex items-center gap-1.5">
-            {!isEditing && (
+            {!isEditing && role === 'organizer' && (
               <button
                 onClick={handleStartEdit}
                 className="p-1 rounded-md text-[#6B6B6B] hover:text-[#181818] hover:bg-gray-100 transition-colors"
@@ -172,7 +173,7 @@ export const PersonDetailModal: React.FC = () => {
           </div>
         </div>
 
-        {isEditing ? (
+        {isEditing && role === 'organizer' ? (
           /* EDIT MODE */
           <div className="space-y-3 pt-1 text-xs">
             <h3 className="font-bold text-[#181818] text-sm pb-1 border-b border-gray-100">

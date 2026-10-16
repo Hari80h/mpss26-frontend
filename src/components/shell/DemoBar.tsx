@@ -137,13 +137,15 @@ export const DemoBar: React.FC = () => {
 
 
           {/* Reset Demo Data */}
-          <button
-            onClick={resetAllData}
-            title="Reset demo data to initial state"
-            className="p-1.5 rounded text-[#AAAAAA] hover:text-white hover:bg-[#282828] border border-[#383838] transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
+          {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && (
+            <button
+              onClick={resetAllData}
+              title="Reset demo data to initial state"
+              className="p-1.5 rounded text-[#AAAAAA] hover:text-white hover:bg-[#282828] border border-[#383838] transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </header>

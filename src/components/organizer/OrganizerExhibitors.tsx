@@ -3,16 +3,40 @@ import React, { useState, useEffect, useRef, Suspense } from "react";
 
 import { ArrowUpRight, BarChart2, Briefcase, Building, Building2, Calendar, Download, LineChart, Mic, User, Users } from 'lucide-react';
 import { useStore } from '../../lib/store';
+import { api, OrganizerExhibitor } from '../../lib/api';
 
 export const OrganizerExhibitors: React.FC = () => {
   const { exhibitors, showToast } = useStore();
+  const [organizerExhibitors, setOrganizerExhibitors] = useState<OrganizerExhibitor[]>([]);
+
+  useEffect(() => {
+    api.organizer.getExhibitors()
+      .then((data) => {
+        if (data && Array.isArray(data) && data.length > 0) {
+          setOrganizerExhibitors(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch organizer exhibitors:', err);
+      });
+  }, []);
+
+  const displayList = organizerExhibitors.length > 0
+    ? organizerExhibitors.map((e) => ({
+        id: e.id,
+        company: e.company,
+        booth: e.booth,
+        category: e.category,
+        leads: typeof e.leadCount === 'number' ? e.leadCount : 0,
+      }))
+    : exhibitors;
 
   const PAGE_SIZE = 11;
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(exhibitors.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(displayList.length / PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * PAGE_SIZE;
-  const paginatedExhibitors = exhibitors.slice(startIndex, startIndex + PAGE_SIZE);
+  const paginatedExhibitors = displayList.slice(startIndex, startIndex + PAGE_SIZE);
 
   const getPageNumbers = () => {
     if (totalPages <= 7) {
@@ -39,7 +63,7 @@ export const OrganizerExhibitors: React.FC = () => {
 
   const handleExportCSV = () => {
     const headers = ['Company', 'Booth', 'Category', 'Leads Generated'];
-    const rows = exhibitors.map((e) => [
+    const rows = displayList.map((e) => [
       `"${e.company}"`,
       `"${e.booth}"`,
       `"${e.category}"`,
@@ -88,7 +112,7 @@ export const OrganizerExhibitors: React.FC = () => {
             <h2 className="text-sm font-semibold text-[#172033]">Sponsor & Exhibitor Directory</h2>
             <p className="text-xs text-[#64748B] mt-0.5">Confirmed booth locations across exhibition halls</p>
           </div>
-          <span className="text-xs font-medium text-[#64748B]">{exhibitors.length} Total Exhibitors</span>
+          <span className="text-xs font-medium text-[#64748B]">{displayList.length} Total Exhibitors</span>
         </div>
 
         <div className="overflow-x-auto">
